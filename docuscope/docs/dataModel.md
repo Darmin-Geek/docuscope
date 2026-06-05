@@ -31,6 +31,7 @@ Each document has the following information
 The id of the document is a uuid that firebase generates.
 Each document has the following information:
 * filename: string
+* author: string
 * storageReference: a reference to the location in firebase storage where the binary data of the file is
 * createdDate: a unix timestamp of when the file was originally created, not when it was uploaded or when the file metadata says it was created. This information is null until the user enters it.
 * checkedOutBy: a firebase firestore userid. If this value is not null, only the user with the matching fileid can write to this document or any of its subcollections. The only exception to this rule is comments, other users can add comments to the file (see fileComments subcollection).
