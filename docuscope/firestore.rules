@@ -2,16 +2,27 @@ rules_version='2'
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
+    // A user's profile document id is their Firebase auth uid (see
+    // docs/dataModel.md). Anyone signed in may read profiles, but a user may
+    // only create or edit their OWN profile, and the only field they can write
+    // is their name. Note Firestore rules are permissive (access is granted if
+    // ANY match allows it), so the placeholder rule below is deliberately
+    // scoped to /projects rather than a top-level /{document=**} wildcard —
+    // otherwise it would also grant write access to /users and defeat this.
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['name'])
+        && request.resource.data.name is string;
+    }
+
+    // Placeholder open access for the rest of the database while the app is
+    // under construction. This allows anyone with your database reference to
+    // view, edit, and delete this data; it is configured to expire so the app
+    // is not left open to attackers indefinitely. Write real rules for these
+    // collections before this date or all client requests will be denied.
+    match /projects/{document=**} {
       allow read, write: if request.time < timestamp.date(2026, 7, 5);
     }
   }
