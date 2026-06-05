@@ -1,0 +1,1 @@
+* The UI should never directly call firebase APIs, it should always happen through a function, this is in part so that the database can be changed to a different provider if needed later.
