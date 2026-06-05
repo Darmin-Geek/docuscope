@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { onAuthChange, logOut, type User } from "@/lib/auth";
 import { getProjectsForUser, type Project } from "@/lib/projects";
+import { getUserProfile } from "@/lib/users";
 import AuthModal, { type AuthMode } from "./AuthModal";
 import SettingsModal from "./SettingsModal";
 import CreateProjectModal from "./CreateProjectModal";
@@ -12,6 +13,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [name, setName] = useState<string | null>(null);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
@@ -42,10 +44,38 @@ export default function Home() {
         loadProjects(nextUser.email);
       } else {
         setProjects([]);
+        // Clear any previous name immediately on sign-out / account switch; the
+        // effect below loads the new one when a user is present.
+        setName(null);
       }
     });
     return unsubscribe;
   }, [loadProjects]);
+
+  // Load the signed-in user's display name (null when they haven't set one).
+  const refreshName = useCallback((currentUser: User) => {
+    return getUserProfile(currentUser.uid).then((profile) => {
+      const trimmed = profile?.name.trim();
+      setName(trimmed ? trimmed : null);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    let active = true;
+    getUserProfile(user.uid).then((profile) => {
+      if (!active) {
+        return;
+      }
+      const trimmed = profile?.name.trim();
+      setName(trimmed ? trimmed : null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   return (
     <div className="relative flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -65,7 +95,7 @@ export default function Home() {
           <div className="flex w-full flex-col items-center gap-8">
             <div className="flex w-full flex-col items-center gap-6">
               <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-                Welcome {user.email}
+                Welcome{name ? ` ${name}` : ""}
               </h1>
               <button
                 type="button"
@@ -143,7 +173,15 @@ export default function Home() {
       )}
 
       {settingsOpen && user && (
-        <SettingsModal user={user} onClose={() => setSettingsOpen(false)} />
+        <SettingsModal
+          user={user}
+          onClose={() => {
+            setSettingsOpen(false);
+            refreshName(user);
+          }}
+        />
+      )}
+
       {creating && user?.email && (
         <CreateProjectModal
           creatorEmail={user.email}
