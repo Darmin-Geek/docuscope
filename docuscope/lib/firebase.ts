@@ -5,6 +5,11 @@ import {
   connectFirestoreEmulator,
   type Firestore,
 } from "firebase/firestore";
+import {
+  getStorage,
+  connectStorageEmulator,
+  type FirebaseStorage,
+} from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -20,6 +25,7 @@ const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseCon
 
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
+export const storage: FirebaseStorage = getStorage(app);
 
 // In local development, talk to the Firebase emulators instead of the real
 // project so testing never touches production. Gated on an explicit env flag
@@ -30,6 +36,7 @@ if (
 ) {
   connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
   connectFirestoreEmulator(db, "localhost", 8080);
+  connectStorageEmulator(storage, "localhost", 9199);
 }
 
 export default app;

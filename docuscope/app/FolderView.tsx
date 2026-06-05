@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getFolders,
   createFolder,
@@ -10,19 +10,29 @@ import CreateFolderModal from "./CreateFolderModal";
 
 type FolderViewProps = {
   projectId: string;
+  // The single selected folder, owned by the parent so the file table can show
+  // the matching files. Creating a folder while one is selected nests the new
+  // folder inside it; with nothing selected it goes to the root.
+  selectedId: string | null;
+  onSelectChange: (folderId: string | null) => void;
+  onUpload: (file: File) => void | Promise<void>;
 };
 
-export default function FolderView({ projectId }: FolderViewProps) {
+export default function FolderView({
+  projectId,
+  selectedId,
+  onSelectChange,
+  onUpload,
+}: FolderViewProps) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // The single selected folder. Creating a folder while one is selected nests
-  // the new folder inside it; with nothing selected it goes to the root.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   // Folders whose direct subfolders are currently revealed.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // Guard against a stale response from a previous projectId resolving after
@@ -53,12 +63,12 @@ export default function FolderView({ projectId }: FolderViewProps) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setSelectedId(null);
+        onSelectChange(null);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [onSelectChange]);
 
   // Group folders by their parent so the tree can be rendered recursively.
   const childrenByParent = useMemo(() => {
@@ -77,7 +87,7 @@ export default function FolderView({ projectId }: FolderViewProps) {
   // Clicking a folder both selects it and toggles whether its direct
   // subfolders are shown.
   function handleFolderClick(folderId: string) {
-    setSelectedId(folderId);
+    onSelectChange(folderId);
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(folderId)) {
@@ -96,6 +106,19 @@ export default function FolderView({ projectId }: FolderViewProps) {
     // Reveal the new folder by expanding its parent (if any).
     if (parentId) {
       setExpanded((prev) => new Set(prev).add(parentId));
+    }
+  }
+
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Reset the input so selecting the same file again still fires onChange.
+    event.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      await onUpload(file);
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -142,12 +165,18 @@ export default function FolderView({ projectId }: FolderViewProps) {
         </button>
         <button
           type="button"
-          disabled
-          title="Coming soon"
-          className="flex h-9 items-center justify-center rounded-full border border-solid border-black/[.08] px-4 text-sm font-medium text-zinc-500 dark:border-white/[.145] dark:text-zinc-400"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex h-9 items-center justify-center rounded-full border border-solid border-black/[.08] px-4 text-sm font-medium transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
         >
-          Upload File
+          {uploading ? "Uploading…" : "Upload File"}
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          onChange={handleFileChange}
+          className="hidden"
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
