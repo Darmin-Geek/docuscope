@@ -48,6 +48,18 @@ export default function FolderView({ projectId }: FolderViewProps) {
     };
   }, [projectId]);
 
+  // Pressing Esc deselects the current folder, so a newly created folder goes
+  // back to the root. Expanded/collapsed state is intentionally left untouched.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedId(null);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // Group folders by their parent so the tree can be rendered recursively.
   const childrenByParent = useMemo(() => {
     const map = new Map<string | null, Folder[]>();
