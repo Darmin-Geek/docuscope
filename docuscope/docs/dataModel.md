@@ -10,7 +10,7 @@ This project uses a Firebase Firestore database, Firebase storage for storing fi
 
 The id of the document is a uuid that firebase generates.
 Each document in the projects collection has the following attributes:
-* contributors: a list of firebase authentication userids
+* contributors: a list of emails
 * title: a string that is the name of the project 
 
 Each document in the projects collection has the following subcollections:
@@ -23,7 +23,6 @@ Each document in the projects collection has the following subcollections:
 
 The id of the document is the user's firebase authentication userid.
 Each document has the following information
-* projects: a list of references to documents in the projects collection. These are the projects the user has been added to
 * name: a string that is the user's full name.
 
 
