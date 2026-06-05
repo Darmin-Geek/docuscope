@@ -1,5 +1,10 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, type Auth } from "firebase/auth";
+import {
+  getFirestore,
+  connectFirestoreEmulator,
+  type Firestore,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -14,15 +19,17 @@ const firebaseConfig = {
 const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth: Auth = getAuth(app);
+export const db: Firestore = getFirestore(app);
 
-// In local development, talk to the Firebase Auth emulator instead of the real
-// project so testing never creates accounts in production. Gated on an explicit
-// env flag so the static export build always targets the live project.
+// In local development, talk to the Firebase emulators instead of the real
+// project so testing never touches production data. Gated on an explicit env
+// flag so the static export build always targets the live project.
 if (
   typeof window !== "undefined" &&
   process.env.NEXT_PUBLIC_FIREBASE_USE_EMULATOR === "true"
 ) {
   connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
+  connectFirestoreEmulator(db, "localhost", 8080);
 }
 
 export default app;
