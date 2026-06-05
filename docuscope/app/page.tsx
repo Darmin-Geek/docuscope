@@ -5,6 +5,7 @@ import { onAuthChange, logOut, type User } from "@/lib/auth";
 import { getProjectsForUser, type Project } from "@/lib/projects";
 import AuthModal, { type AuthMode } from "./AuthModal";
 import CreateProjectModal from "./CreateProjectModal";
+import ProjectView from "./ProjectView";
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
@@ -15,6 +16,7 @@ export default function Home() {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   const loadProjects = useCallback(async (email: string) => {
     setProjectsLoading(true);
@@ -40,10 +42,21 @@ export default function Home() {
         loadProjects(nextUser.email);
       } else {
         setProjects([]);
+        setSelectedProject(null);
       }
     });
     return unsubscribe;
   }, [loadProjects]);
+
+  // Once a project is opened, the project view takes over the whole window.
+  if (user && selectedProject) {
+    return (
+      <ProjectView
+        project={selectedProject}
+        onBack={() => setSelectedProject(null)}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -92,13 +105,16 @@ export default function Home() {
               ) : (
                 <ul className="flex flex-col gap-2">
                   {projects.map((project) => (
-                    <li
-                      key={project.id}
-                      className="rounded-xl border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
-                    >
-                      <span className="text-base font-medium text-black dark:text-zinc-50">
-                        {project.title || "Untitled project"}
-                      </span>
+                    <li key={project.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProject(project)}
+                        className="w-full rounded-xl border border-black/[.08] px-4 py-3 text-left transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+                      >
+                        <span className="text-base font-medium text-black dark:text-zinc-50">
+                          {project.title || "Untitled project"}
+                        </span>
+                      </button>
                     </li>
                   ))}
                 </ul>
