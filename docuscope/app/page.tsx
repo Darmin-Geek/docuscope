@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { onAuthChange, logOut, type User } from "@/lib/auth";
+import { getProjectsForUser, type Project } from "@/lib/projects";
 import AuthModal, { type AuthMode } from "./AuthModal";
 import SettingsModal from "./SettingsModal";
+import CreateProjectModal from "./CreateProjectModal";
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
@@ -11,13 +13,39 @@ export default function Home() {
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const loadProjects = useCallback(async (email: string) => {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      setProjects(await getProjectsForUser(email));
+    } catch (err) {
+      setProjectsError(
+        err instanceof Error ? err.message : "Failed to load projects.",
+      );
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
+    // The auth callback fires asynchronously when auth state resolves/changes,
+    // so it's the right place to kick off the per-user project load.
     const unsubscribe = onAuthChange((nextUser) => {
       setUser(nextUser);
       setLoading(false);
+      if (nextUser?.email) {
+        loadProjects(nextUser.email);
+      } else {
+        setProjects([]);
+      }
     });
     return unsubscribe;
-  }, []);
+  }, [loadProjects]);
 
   return (
     <div className="relative flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -34,17 +62,61 @@ export default function Home() {
 
       <main className="flex w-full max-w-3xl flex-col items-center gap-8 px-16 py-32">
         {loading ? null : user ? (
-          <div className="flex flex-col items-center gap-6">
-            <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-              Welcome {user.email}
-            </h1>
-            <button
-              type="button"
-              onClick={() => logOut()}
-              className="flex h-12 w-40 items-center justify-center rounded-full border border-solid border-black/[.08] px-5 text-base font-medium transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
-            >
-              Log Out
-            </button>
+          <div className="flex w-full flex-col items-center gap-8">
+            <div className="flex w-full flex-col items-center gap-6">
+              <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
+                Welcome {user.email}
+              </h1>
+              <button
+                type="button"
+                onClick={() => logOut()}
+                className="flex h-12 w-40 items-center justify-center rounded-full border border-solid border-black/[.08] px-5 text-base font-medium transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+              >
+                Log Out
+              </button>
+            </div>
+
+            <section className="flex w-full flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-black dark:text-zinc-50">
+                  Your Projects
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setCreating(true)}
+                  className="flex h-10 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
+                >
+                  Create Project
+                </button>
+              </div>
+
+              {projectsLoading ? (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  Loading projects…
+                </p>
+              ) : projectsError ? (
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  {projectsError}
+                </p>
+              ) : projects.length === 0 ? (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  You haven&apos;t been added to any projects yet.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {projects.map((project) => (
+                    <li
+                      key={project.id}
+                      className="rounded-xl border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
+                    >
+                      <span className="text-base font-medium text-black dark:text-zinc-50">
+                        {project.title || "Untitled project"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
         ) : (
           <div className="flex flex-col gap-4 sm:flex-row">
@@ -72,6 +144,12 @@ export default function Home() {
 
       {settingsOpen && user && (
         <SettingsModal user={user} onClose={() => setSettingsOpen(false)} />
+      {creating && user?.email && (
+        <CreateProjectModal
+          creatorEmail={user.email}
+          onClose={() => setCreating(false)}
+          onCreated={() => loadProjects(user.email!)}
+        />
       )}
     </div>
   );

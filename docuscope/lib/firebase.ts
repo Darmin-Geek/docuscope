@@ -22,8 +22,8 @@ export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
 
 // In local development, talk to the Firebase emulators instead of the real
-// project so testing never touches production data. Gated on an explicit env
-// flag so the static export build always targets the live project.
+// project so testing never touches production. Gated on an explicit env flag
+// so the static export build always targets the live project.
 if (
   typeof window !== "undefined" &&
   process.env.NEXT_PUBLIC_FIREBASE_USE_EMULATOR === "true"
