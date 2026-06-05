@@ -13,7 +13,7 @@ import {
   type DocumentReference,
   type DocumentSnapshot,
 } from "firebase/firestore";
-import { ref, uploadBytes } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "./firebase";
 
 // All Firestore access for projects is funneled through these functions so the
@@ -204,4 +204,30 @@ export async function uploadFile(
   }
 
   return { id: fileRef.id, ...fileData };
+}
+
+/**
+ * Update the user-supplied metadata on a file: its `author` and `createdDate`
+ * (a unix timestamp in seconds, or null when the user clears it). Other fields
+ * are left untouched.
+ */
+export async function updateFileMetadata(
+  projectId: string,
+  fileId: string,
+  metadata: { author: string | null; createdDate: number | null },
+): Promise<void> {
+  await updateDoc(doc(db, "projects", projectId, "files", fileId), {
+    author: metadata.author,
+    createdDate: metadata.createdDate,
+  });
+}
+
+/**
+ * Resolve a file's Firebase Storage reference to a download URL the browser can
+ * load directly (used for previewing images and PDFs).
+ */
+export async function getFileDownloadUrl(
+  storageReference: string,
+): Promise<string> {
+  return getDownloadURL(ref(storage, storageReference));
 }

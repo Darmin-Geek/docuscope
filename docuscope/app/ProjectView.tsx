@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getFiles, uploadFile, type FileDoc, type Project } from "@/lib/projects";
 import FolderView from "./FolderView";
 import FilesTable from "./FilesTable";
+import FileSidebar from "./FileSidebar";
 
 type ProjectViewProps = {
   project: Project;
@@ -25,6 +26,8 @@ export default function ProjectView({
   const [files, setFiles] = useState<FileDoc[]>([]);
   const [filesLoading, setFilesLoading] = useState(true);
   const [filesError, setFilesError] = useState<string | null>(null);
+  // The file whose metadata sidebar is open, or null when it's closed.
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
   const loadFiles = useCallback(() => {
     return getFiles(project.id, selectedFolderId)
@@ -68,6 +71,15 @@ export default function ProjectView({
     await loadFiles();
   }
 
+  // Reflect a saved metadata edit locally so the table updates without a refetch.
+  function handleFileSaved(updated: FileDoc) {
+    setFiles((prev) =>
+      prev.map((file) => (file.id === updated.id ? updated : file)),
+    );
+  }
+
+  const selectedFile = files.find((file) => file.id === selectedFileId) ?? null;
+
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 font-sans dark:bg-black">
       <header className="flex items-center gap-4 border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
@@ -92,8 +104,24 @@ export default function ProjectView({
           onUpload={handleUpload}
         />
         <main className="flex-1 overflow-y-auto p-6">
-          <FilesTable files={files} loading={filesLoading} error={filesError} />
+          <FilesTable
+            files={files}
+            loading={filesLoading}
+            error={filesError}
+            selectedId={selectedFileId}
+            onSelectFile={(file) => setSelectedFileId(file.id)}
+          />
         </main>
+        {selectedFile && (
+          <FileSidebar
+            // Remount on file change so the form resets to the new file's values.
+            key={selectedFile.id}
+            projectId={project.id}
+            file={selectedFile}
+            onClose={() => setSelectedFileId(null)}
+            onSaved={handleFileSaved}
+          />
+        )}
       </div>
     </div>
   );
