@@ -175,7 +175,9 @@ export default function Home() {
       <ProjectView
         project={selectedProject}
         authorName={name}
-        onBack={() => selectProject(null)}
+        onBack={() => {selectProject(null); setSelectedProject(null);}}
+
+        userId={user.uid}
       />
     );
   }
