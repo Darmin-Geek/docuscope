@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { onAuthChange, logOut, type User } from "@/lib/auth";
 import { getProjectsForUser, type Project } from "@/lib/projects";
 import { getUserProfile } from "@/lib/users";
@@ -9,6 +9,28 @@ import ResetPasswordModal from "./ResetPasswordModal";
 import SettingsModal from "./SettingsModal";
 import CreateProjectModal from "./CreateProjectModal";
 import ProjectView from "./ProjectView";
+
+// Remembers which project the user last opened so a page reload returns them to
+// that project's view instead of the project list. Scoped per-browser only.
+const SELECTED_PROJECT_KEY = "docuscope:selectedProjectId";
+
+function readStoredProjectId(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return window.localStorage.getItem(SELECTED_PROJECT_KEY);
+}
+
+function storeSelectedProjectId(id: string | null): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (id) {
+    window.localStorage.setItem(SELECTED_PROJECT_KEY, id);
+  } else {
+    window.localStorage.removeItem(SELECTED_PROJECT_KEY);
+  }
+}
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
@@ -23,18 +45,54 @@ export default function Home() {
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  // Whether we've already attempted to restore the last-opened project for this
+  // session. The restore should run only on the first project load after
+  // sign-in, never on later refreshes (e.g. after creating a project), so it
+  // can't yank a user off the list view they're intentionally looking at.
+  const restoredSelectionRef = useRef(false);
+  // True while that first load + restore decision is in flight. We show a
+  // spinner (rather than the project list) until it resolves, so a reload that
+  // reopens a project doesn't flash the list on the way to the project view.
+  const [restoringSelection, setRestoringSelection] = useState(true);
+
+  // Select (or clear) a project and remember the choice so a reload reopens it.
+  const selectProject = useCallback((project: Project | null) => {
+    setSelectedProject(project);
+    storeSelectedProjectId(project?.id ?? null);
+  }, []);
 
   const loadProjects = useCallback(async (email: string) => {
+    const isInitialLoad = !restoredSelectionRef.current;
     setProjectsLoading(true);
     setProjectsError(null);
     try {
-      setProjects(await getProjectsForUser(email));
+      const loaded = await getProjectsForUser(email);
+      setProjects(loaded);
+      // On the first load after sign-in, reopen the project the user last had
+      // open if it's still one of theirs.
+      if (isInitialLoad) {
+        restoredSelectionRef.current = true;
+        const storedId = readStoredProjectId();
+        const stored = storedId
+          ? loaded.find((project) => project.id === storedId)
+          : undefined;
+        if (stored) {
+          setSelectedProject(stored);
+        } else if (storedId) {
+          // The stored project is gone (deleted or access revoked); drop it.
+          storeSelectedProjectId(null);
+        }
+      }
     } catch (err) {
       setProjectsError(
         err instanceof Error ? err.message : "Failed to load projects.",
       );
     } finally {
       setProjectsLoading(false);
+      // The restore decision is now made; reveal the resolved view.
+      if (isInitialLoad) {
+        setRestoringSelection(false);
+      }
     }
   }, []);
 
@@ -48,14 +106,19 @@ export default function Home() {
         loadProjects(nextUser.email);
       } else {
         setProjects([]);
-        setSelectedProject(null);
+        // Forget the open project on sign-out and allow the next sign-in to
+        // restore its own last-opened project.
+        selectProject(null);
+        restoredSelectionRef.current = false;
+        // Spin again on the next sign-in while that user's projects load.
+        setRestoringSelection(true);
         // Clear any previous name immediately on sign-out / account switch; the
         // effect below loads the new one when a user is present.
         setName(null);
       }
     });
     return unsubscribe;
-  }, [loadProjects]);
+  }, [loadProjects, selectProject]);
 
   // Load the signed-in user's display name (null when they haven't set one).
   const refreshName = useCallback((currentUser: User) => {
@@ -89,14 +152,30 @@ export default function Home() {
     };
   }, [user]);
 
+  // While auth is resolving, or while a signed-in user's projects load for the
+  // first time (and we decide whether to reopen their last project), show a
+  // spinner. This resolves directly into either the project view or the project
+  // list, so neither flashes before the other. Placed after all hooks so the
+  // early returns never skip one.
+  if (loading || (user && restoringSelection)) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
+        <div
+          role="status"
+          aria-label="Loading"
+          className="h-10 w-10 animate-spin rounded-full border-2 border-black/[.12] border-t-black/70 dark:border-white/[.18] dark:border-t-white/80"
+        />
+      </div>
+    );
+  }
+
   // Once a project is opened, the project view takes over the whole window.
-  // Placed after all hooks so the early return never skips one.
   if (user && selectedProject) {
     return (
       <ProjectView
         project={selectedProject}
         authorName={name}
-        onBack={() => setSelectedProject(null)}
+        onBack={() => selectProject(null)}
       />
     );
   }
@@ -162,7 +241,7 @@ export default function Home() {
                     <li key={project.id}>
                       <button
                         type="button"
-                        onClick={() => setSelectedProject(project)}
+                        onClick={() => selectProject(project)}
                         className="w-full rounded-xl border border-black/[.08] px-4 py-3 text-left transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
                       >
                         <span className="text-base font-medium text-black dark:text-zinc-50">
