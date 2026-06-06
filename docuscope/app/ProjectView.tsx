@@ -211,6 +211,15 @@ export default function ProjectView({
           }
           onLabelDeleted={(labelId) => {
             setLabels((prev) => prev.filter((label) => label.id !== labelId));
+            // deleteLabel() strips the label from every file in Firestore; mirror
+            // that in the loaded files so the table/sidebar don't keep a stale id.
+            setFiles((prev) =>
+              prev.map((file) =>
+                file.labels.includes(labelId)
+                  ? { ...file, labels: file.labels.filter((id) => id !== labelId) }
+                  : file,
+              ),
+            );
             // Drop the deleted label from any active filter so it can't linger.
             setSelectedLabelIds((prev) => {
               if (!prev.has(labelId)) return prev;
