@@ -12,7 +12,9 @@ import {
 import FolderView from "./FolderView";
 import FilesTable from "./FilesTable";
 import FileSidebar from "./FileSidebar";
+import InformationSidebar from "./InformationSidebar";
 import ProjectSettingsModal from "./ProjectSettingsModal";
+import { useFileLock } from "./useFileLock";
 
 type ProjectViewProps = {
   project: Project;
@@ -40,6 +42,8 @@ export default function ProjectView({
   const [filesError, setFilesError] = useState<string | null>(null);
   // The file whose metadata sidebar is open, or null when it's closed.
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  // Whether the information sidebar is open alongside the file detail sidebar.
+  const [informationOpen, setInformationOpen] = useState(false);
 
   // The project's labels, plus the editable title and settings modal state.
   // Title is held locally so a rename in settings updates the header at once.
@@ -142,6 +146,10 @@ export default function ProjectView({
 
   const selectedFile = files.find((file) => file.id === selectedFileId) ?? null;
 
+  // One lock per selected file, shared by the detail and information sidebars so
+  // editing either side checks the whole file out (see useFileLock).
+  const lock = useFileLock(project.id, selectedFileId, userId);
+
   return (
     <div className="flex h-dvh flex-col bg-zinc-50 font-sans dark:bg-black">
       <header className="flex items-center gap-4 border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
@@ -166,7 +174,7 @@ export default function ProjectView({
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <FolderView
           projectId={project.id}
           selectedId={selectedFolderId}
@@ -183,9 +191,23 @@ export default function ProjectView({
             error={filesError}
             labels={labels}
             selectedId={selectedFileId}
-            onSelectFile={(file) => setSelectedFileId(file.id)}
+            onSelectFile={(file) => {
+              setSelectedFileId(file.id);
+              setInformationOpen(false);
+            }}
           />
         </main>
+        {selectedFile && informationOpen && (
+          // Sits to the left of the file detail sidebar, overlaying the file
+          // table so only the file names stay visible.
+          <InformationSidebar
+            key={selectedFile.id}
+            projectId={project.id}
+            file={selectedFile}
+            lock={lock}
+            onClose={() => setInformationOpen(false)}
+          />
+        )}
         {selectedFile && (
           <FileSidebar
             // Remount on file change so the form resets to the new file's values.
@@ -193,8 +215,12 @@ export default function ProjectView({
             projectId={project.id}
             file={selectedFile}
             labels={labels}
-            userId={userId}
-            onClose={() => setSelectedFileId(null)}
+            lock={lock}
+            onOpenInformation={() => setInformationOpen(true)}
+            onClose={() => {
+              setSelectedFileId(null);
+              setInformationOpen(false);
+            }}
             onSaved={handleFileSaved}
           />
         )}

@@ -103,6 +103,38 @@ function fileFromSnapshot(snapshot: DocumentSnapshot): FileDoc {
   };
 }
 
+/**
+ * A piece of information extracted from a file, stored in the file's
+ * `information` subcollection (see docs/dataModel.md). The title is always a
+ * string; the remaining free-text fields are null until set, mirroring how the
+ * file's own assessments are stored.
+ */
+export type Information = {
+  id: string;
+  informationTitle: string;
+  informationText: string | null;
+  overallBias: string | null;
+  informationReliability: string | null;
+  informationCredibility: string | null;
+};
+
+/** The writable fields of an information document (everything but its id). */
+export type InformationFields = Omit<Information, "id">;
+
+function informationFromSnapshot(snapshot: DocumentSnapshot): Information {
+  const data = snapshot.data() ?? {};
+  return {
+    id: snapshot.id,
+    informationTitle: (data.informationTitle as string) ?? "",
+    informationText: (data.informationText as string | null) ?? null,
+    overallBias: (data.overallBias as string | null) ?? null,
+    informationReliability:
+      (data.informationReliability as string | null) ?? null,
+    informationCredibility:
+      (data.informationCredibility as string | null) ?? null,
+  };
+}
+
 function labelFromSnapshot(snapshot: DocumentSnapshot): Label {
   const data = snapshot.data() ?? {};
   return {
@@ -361,6 +393,66 @@ export async function checkInFile(
   await updateDoc(doc(db, "projects", projectId, "files", fileId), {
     checkedOutBy: null,
   });
+}
+
+/**
+ * Subscribe to a file's `information` subcollection (see docs/dataModel.md),
+ * receiving the full list whenever any entry is added, edited, or removed. Used
+ * to keep the information sidebar's title list live across contributors. Returns
+ * an unsubscribe function.
+ */
+export function subscribeToInformation(
+  projectId: string,
+  fileId: string,
+  onChange: (information: Information[]) => void,
+): () => void {
+  return onSnapshot(
+    collection(db, "projects", projectId, "files", fileId, "information"),
+    (snapshot) => {
+      onChange(snapshot.docs.map(informationFromSnapshot));
+    },
+  );
+}
+
+/**
+ * Create a new information entry in a file's `information` subcollection. Only
+ * the user holding the file's check-out may write here (enforced in the UI; see
+ * docs/dataModel.md). Returns the new entry's id.
+ */
+export async function addInformation(
+  projectId: string,
+  fileId: string,
+  fields: InformationFields,
+): Promise<string> {
+  const docRef = await addDoc(
+    collection(db, "projects", projectId, "files", fileId, "information"),
+    fields,
+  );
+  return docRef.id;
+}
+
+/** Update an existing information entry's fields. */
+export async function updateInformation(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  fields: InformationFields,
+): Promise<void> {
+  await updateDoc(
+    doc(db, "projects", projectId, "files", fileId, "information", informationId),
+    fields,
+  );
+}
+
+/** Delete an information entry from a file's `information` subcollection. */
+export async function deleteInformation(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+): Promise<void> {
+  await deleteDoc(
+    doc(db, "projects", projectId, "files", fileId, "information", informationId),
+  );
 }
 
 /**
