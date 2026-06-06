@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { getFiles, uploadFile, type FileDoc, type Project } from "@/lib/projects";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  getFiles,
+  getLabels,
+  uploadFile,
+  type FileDoc,
+  type Label,
+  type Project,
+} from "@/lib/projects";
 import FolderView from "./FolderView";
 import FilesTable from "./FilesTable";
 import FileSidebar from "./FileSidebar";
+import ProjectSettingsModal from "./ProjectSettingsModal";
 
 type ProjectViewProps = {
   project: Project;
@@ -28,6 +36,47 @@ export default function ProjectView({
   const [filesError, setFilesError] = useState<string | null>(null);
   // The file whose metadata sidebar is open, or null when it's closed.
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+
+  // The project's labels, plus the editable title and settings modal state.
+  // Title is held locally so a rename in settings updates the header at once.
+  const [title, setTitle] = useState(project.title);
+  const [labels, setLabels] = useState<Label[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Labels currently filtering the file table. A file must carry every selected
+  // label to appear; an empty set means no filtering.
+  const [selectedLabelIds, setSelectedLabelIds] = useState<Set<string>>(
+    new Set(),
+  );
+
+  // Load the project's labels once per project.
+  useEffect(() => {
+    let active = true;
+    getLabels(project.id)
+      .then((result) => {
+        if (active) setLabels(result);
+      })
+      .catch(() => {
+        // Labels are non-critical chrome; ignore load failures silently.
+      });
+    return () => {
+      active = false;
+    };
+  }, [project.id]);
+
+  // Plain click selects a single label (or clears it when it's the only one
+  // selected); shift-click toggles the label within the current selection.
+  function handleToggleLabel(labelId: string, additive: boolean) {
+    setSelectedLabelIds((prev) => {
+      if (additive) {
+        const next = new Set(prev);
+        if (next.has(labelId)) next.delete(labelId);
+        else next.add(labelId);
+        return next;
+      }
+      if (prev.size === 1 && prev.has(labelId)) return new Set();
+      return new Set([labelId]);
+    });
+  }
 
   const loadFiles = useCallback(() => {
     return getFiles(project.id, selectedFolderId)
@@ -78,10 +127,19 @@ export default function ProjectView({
     );
   }
 
+  // Within the already-loaded files (the project, or the selected folder), keep
+  // only those carrying every selected label. No selection means no filtering.
+  const visibleFiles = useMemo(() => {
+    if (selectedLabelIds.size === 0) return files;
+    return files.filter((file) =>
+      [...selectedLabelIds].every((id) => file.labels.includes(id)),
+    );
+  }, [files, selectedLabelIds]);
+
   const selectedFile = files.find((file) => file.id === selectedFileId) ?? null;
 
   return (
-    <div className="flex flex-1 flex-col bg-zinc-50 font-sans dark:bg-black">
+    <div className="flex h-dvh flex-col bg-zinc-50 font-sans dark:bg-black">
       <header className="flex items-center gap-4 border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
         <button
           type="button"
@@ -92,22 +150,34 @@ export default function ProjectView({
           ← Projects
         </button>
         <h1 className="text-2xl font-semibold tracking-tight text-black dark:text-zinc-50">
-          {project.title || "Untitled project"}
+          {title || "Untitled project"}
         </h1>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          aria-label="Project settings"
+          className="ml-auto flex h-9 w-9 items-center justify-center rounded-full border border-solid border-black/[.08] text-lg transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+        >
+          ⚙
+        </button>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <FolderView
           projectId={project.id}
           selectedId={selectedFolderId}
           onSelectChange={setSelectedFolderId}
           onUpload={handleUpload}
+          labels={labels}
+          selectedLabelIds={selectedLabelIds}
+          onToggleLabel={handleToggleLabel}
         />
         <main className="flex-1 overflow-y-auto p-6">
           <FilesTable
-            files={files}
+            files={visibleFiles}
             loading={filesLoading}
             error={filesError}
+            labels={labels}
             selectedId={selectedFileId}
             onSelectFile={(file) => setSelectedFileId(file.id)}
           />
@@ -118,11 +188,49 @@ export default function ProjectView({
             key={selectedFile.id}
             projectId={project.id}
             file={selectedFile}
+            labels={labels}
             onClose={() => setSelectedFileId(null)}
             onSaved={handleFileSaved}
           />
         )}
       </div>
+
+      {settingsOpen && (
+        <ProjectSettingsModal
+          projectId={project.id}
+          title={title}
+          labels={labels}
+          onTitleSaved={setTitle}
+          onLabelCreated={(label) => setLabels((prev) => [...prev, label])}
+          onLabelUpdated={(label) =>
+            setLabels((prev) =>
+              prev.map((existing) =>
+                existing.id === label.id ? label : existing,
+              ),
+            )
+          }
+          onLabelDeleted={(labelId) => {
+            setLabels((prev) => prev.filter((label) => label.id !== labelId));
+            // deleteLabel() strips the label from every file in Firestore; mirror
+            // that in the loaded files so the table/sidebar don't keep a stale id.
+            setFiles((prev) =>
+              prev.map((file) =>
+                file.labels.includes(labelId)
+                  ? { ...file, labels: file.labels.filter((id) => id !== labelId) }
+                  : file,
+              ),
+            );
+            // Drop the deleted label from any active filter so it can't linger.
+            setSelectedLabelIds((prev) => {
+              if (!prev.has(labelId)) return prev;
+              const next = new Set(prev);
+              next.delete(labelId);
+              return next;
+            });
+          }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 }

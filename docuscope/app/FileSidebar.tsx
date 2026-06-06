@@ -4,12 +4,19 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 import {
   getFileDownloadUrl,
   updateFileMetadata,
+  addLabelToFile,
+  removeLabelFromFile,
   type FileDoc,
+  type Label,
 } from "@/lib/projects";
+import LabelPill from "./LabelPill";
 
 type FileSidebarProps = {
   projectId: string;
   file: FileDoc;
+  // Every label defined on the project, used to resolve the file's label ids
+  // and to offer the ones not yet applied.
+  labels: Label[];
   onClose: () => void;
   // Called after a successful save so the parent can refresh its file list.
   onSaved: (updated: FileDoc) => void;
@@ -47,6 +54,7 @@ function dateInputToTimestamp(value: string): number | null {
 export default function FileSidebar({
   projectId,
   file,
+  labels,
   onClose,
   onSaved,
 }: FileSidebarProps) {
@@ -61,9 +69,46 @@ export default function FileSidebar({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Whether the "add label" picker (the unassigned labels) is showing.
+  const [pickingLabel, setPickingLabel] = useState(false);
+  const [labelError, setLabelError] = useState<string | null>(null);
+
   const kind = previewKind(file.filename);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Resolve the file's label ids against the project's labels, preserving the
+  // project's label order. Ids without a matching label (e.g. deleted) drop out.
+  const appliedLabels = labels.filter((label) => file.labels.includes(label.id));
+  const availableLabels = labels.filter(
+    (label) => !file.labels.includes(label.id),
+  );
+
+  async function handleAddLabel(labelId: string) {
+    setLabelError(null);
+    setPickingLabel(false);
+    try {
+      await addLabelToFile(projectId, file.id, labelId);
+      onSaved({ ...file, labels: [...file.labels, labelId] });
+    } catch (err: unknown) {
+      setLabelError(err instanceof Error ? err.message : "Failed to add label.");
+    }
+  }
+
+  async function handleRemoveLabel(labelId: string) {
+    setLabelError(null);
+    try {
+      await removeLabelFromFile(projectId, file.id, labelId);
+      onSaved({
+        ...file,
+        labels: file.labels.filter((id) => id !== labelId),
+      });
+    } catch (err: unknown) {
+      setLabelError(
+        err instanceof Error ? err.message : "Failed to remove label.",
+      );
+    }
+  }
 
   // Fetch a download URL for previewable files. The component is remounted per
   // file (keyed by id in the parent), so the URL state starts fresh each time;
@@ -143,6 +188,50 @@ export default function FileSidebar({
       </header>
 
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-black dark:text-zinc-50">
+            Labels
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {appliedLabels.map((label) => (
+              <LabelPill key={label.id} label={label.label} color={label.color}>
+                <button
+                  type="button"
+                  onClick={() => void handleRemoveLabel(label.id)}
+                  aria-label={`Remove ${label.label}`}
+                  className="leading-none opacity-70 hover:opacity-100"
+                >
+                  ×
+                </button>
+              </LabelPill>
+            ))}
+            {availableLabels.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setPickingLabel((open) => !open)}
+                className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+              >
+                + Label
+              </button>
+            )}
+          </div>
+          {pickingLabel && availableLabels.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 rounded-md border border-black/[.08] p-2 dark:border-white/[.145]">
+              {availableLabels.map((label) => (
+                <LabelPill
+                  key={label.id}
+                  label={label.label}
+                  color={label.color}
+                  onClick={() => void handleAddLabel(label.id)}
+                />
+              ))}
+            </div>
+          )}
+          {labelError && (
+            <p className="text-xs text-red-600 dark:text-red-400">{labelError}</p>
+          )}
+        </div>
+
         <label className="flex items-center gap-2">
           <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
             Author
