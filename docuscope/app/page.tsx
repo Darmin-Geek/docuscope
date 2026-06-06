@@ -5,6 +5,7 @@ import { onAuthChange, logOut, type User } from "@/lib/auth";
 import { getProjectsForUser, type Project } from "@/lib/projects";
 import { getUserProfile } from "@/lib/users";
 import AuthModal, { type AuthMode } from "./AuthModal";
+import ResetPasswordModal from "./ResetPasswordModal";
 import SettingsModal from "./SettingsModal";
 import CreateProjectModal from "./CreateProjectModal";
 import ProjectView from "./ProjectView";
@@ -13,6 +14,7 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
+  const [resettingPassword, setResettingPassword] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [name, setName] = useState<string | null>(null);
 
@@ -186,8 +188,24 @@ export default function Home() {
         )}
       </main>
 
+      {!loading && !user && (
+        <footer className="absolute bottom-6 left-0 right-0 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setResettingPassword(true)}
+            className="text-sm font-medium text-zinc-500 underline-offset-4 transition-colors hover:text-black hover:underline dark:text-zinc-400 dark:hover:text-zinc-50"
+          >
+            Reset Password
+          </button>
+        </footer>
+      )}
+
       {authMode && (
         <AuthModal mode={authMode} onClose={() => setAuthMode(null)} />
+      )}
+
+      {resettingPassword && (
+        <ResetPasswordModal onClose={() => setResettingPassword(false)} />
       )}
 
       {settingsOpen && user && (

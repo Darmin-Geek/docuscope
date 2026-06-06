@@ -1,6 +1,7 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
   type User,
@@ -23,6 +24,11 @@ export async function signUp(email: string, password: string): Promise<User> {
 export async function logIn(email: string, password: string): Promise<User> {
   const credential = await signInWithEmailAndPassword(auth, email, password);
   return credential.user;
+}
+
+/** Send a password reset email to the given address. */
+export function resetPassword(email: string): Promise<void> {
+  return sendPasswordResetEmail(auth, email);
 }
 
 /** Sign the current user out. */
