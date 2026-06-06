@@ -44,6 +44,11 @@ export type FileDoc = {
   createdDate: number | null;
   /** Path to the file's binary data in Firebase Storage. */
   storageReference: string;
+  /** Free-text assessments of the file (see docs/dataModel.md), null until set. */
+  overallBias: string | null;
+  source: string | null;
+  fileReliability: string | null;
+  fileCredibility: string | null;
 };
 
 function fileFromSnapshot(snapshot: DocumentSnapshot): FileDoc {
@@ -54,6 +59,10 @@ function fileFromSnapshot(snapshot: DocumentSnapshot): FileDoc {
     author: (data.author as string | null) ?? null,
     createdDate: (data.createdDate as number | null) ?? null,
     storageReference: (data.storageReference as string) ?? "",
+    overallBias: (data.overallBias as string | null) ?? null,
+    source: (data.source as string | null) ?? null,
+    fileReliability: (data.fileReliability as string | null) ?? null,
+    fileCredibility: (data.fileCredibility as string | null) ?? null,
   };
 }
 
@@ -194,6 +203,10 @@ export async function uploadFile(
     author: author ?? null,
     storageReference,
     createdDate: null,
+    overallBias: null,
+    source: null,
+    fileReliability: null,
+    fileCredibility: null,
   };
   await setDoc(fileRef, fileData);
 
@@ -207,18 +220,30 @@ export async function uploadFile(
 }
 
 /**
- * Update the user-supplied metadata on a file: its `author` and `createdDate`
- * (a unix timestamp in seconds, or null when the user clears it). Other fields
- * are left untouched.
+ * Update the user-supplied metadata on a file: its `author`, `createdDate`
+ * (a unix timestamp in seconds, or null when cleared), and the free-text
+ * assessments (`overallBias`, `source`, `fileReliability`, `fileCredibility`,
+ * each null when cleared). Other fields are left untouched.
  */
 export async function updateFileMetadata(
   projectId: string,
   fileId: string,
-  metadata: { author: string | null; createdDate: number | null },
+  metadata: {
+    author: string | null;
+    createdDate: number | null;
+    overallBias: string | null;
+    source: string | null;
+    fileReliability: string | null;
+    fileCredibility: string | null;
+  },
 ): Promise<void> {
   await updateDoc(doc(db, "projects", projectId, "files", fileId), {
     author: metadata.author,
     createdDate: metadata.createdDate,
+    overallBias: metadata.overallBias,
+    source: metadata.source,
+    fileReliability: metadata.fileReliability,
+    fileCredibility: metadata.fileCredibility,
   });
 }
 
