@@ -70,13 +70,20 @@ export default function Home() {
       return;
     }
     let active = true;
-    getUserProfile(user.uid).then((profile) => {
-      if (!active) {
-        return;
-      }
-      const trimmed = profile?.name.trim();
-      setName(trimmed ? trimmed : null);
-    });
+    getUserProfile(user.uid)
+      .then((profile) => {
+        if (!active) {
+          return;
+        }
+        const trimmed = profile?.name.trim();
+        setName(trimmed ? trimmed : null);
+      })
+      .catch(() => {
+        // The read can be rejected if the user signs out while it is still in
+        // flight (the now-null auth fails the Firestore rules). That's expected
+        // during sign-out, so swallow it rather than surfacing an unhandled
+        // rejection; the auth listener has already cleared the name.
+      });
     return () => {
       active = false;
     };
@@ -213,7 +220,8 @@ export default function Home() {
           user={user}
           onClose={() => {
             setSettingsOpen(false);
-            refreshName(user);
+            // Ignore a rejection here too (e.g. signing out as settings close).
+            refreshName(user).catch(() => {});
           }}
         />
       )}
