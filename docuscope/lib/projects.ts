@@ -167,6 +167,39 @@ export async function updateProjectTitle(
   await updateDoc(doc(db, "projects", projectId), { title: title.trim() });
 }
 
+/**
+ * Add a contributor to a project by email. The email is normalised (trimmed and
+ * lower-cased) the same way it is on project creation, so access checks line up
+ * regardless of how the address was typed. Idempotent, and returns the stored
+ * (normalised) form so callers can mirror it in their local list.
+ */
+export async function addContributor(
+  projectId: string,
+  email: string,
+): Promise<string> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) {
+    throw new Error("Enter an email address.");
+  }
+  await updateDoc(doc(db, "projects", projectId), {
+    contributors: arrayUnion(normalized),
+  });
+  return normalized;
+}
+
+/**
+ * Remove a contributor from a project. `email` must be the value as stored on
+ * the project (already normalised). Idempotent.
+ */
+export async function removeContributor(
+  projectId: string,
+  email: string,
+): Promise<void> {
+  await updateDoc(doc(db, "projects", projectId), {
+    contributors: arrayRemove(email),
+  });
+}
+
 /** Fetch every folder in a project, flattened (the tree is built in the UI). */
 export async function getFolders(projectId: string): Promise<Folder[]> {
   const snapshot = await getDocs(

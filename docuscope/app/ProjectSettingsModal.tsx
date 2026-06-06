@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import {
+  addContributor,
   createLabel,
   deleteLabel,
+  removeContributor,
   updateLabel,
   updateProjectTitle,
   type Label,
@@ -14,10 +16,16 @@ type ProjectSettingsModalProps = {
   projectId: string;
   title: string;
   labels: Label[];
+  contributors: string[];
+  // The signed-in user's email, so the UI can stop them removing themselves
+  // (which, under the security rules, would instantly revoke their own access).
+  currentUserEmail: string;
   onTitleSaved: (title: string) => void;
   onLabelCreated: (label: Label) => void;
   onLabelUpdated: (label: Label) => void;
   onLabelDeleted: (labelId: string) => void;
+  onContributorAdded: (email: string) => void;
+  onContributorRemoved: (email: string) => void;
   onClose: () => void;
 };
 
@@ -28,21 +36,67 @@ export default function ProjectSettingsModal({
   projectId,
   title,
   labels,
+  contributors,
+  currentUserEmail,
   onTitleSaved,
   onLabelCreated,
   onLabelUpdated,
   onLabelDeleted,
+  onContributorAdded,
+  onContributorRemoved,
   onClose,
 }: ProjectSettingsModalProps) {
   const [titleValue, setTitleValue] = useState(title);
   // Local working copy so name/color edits feel instant; each change is also
   // persisted to Firestore and pushed up to the parent on blur.
   const [draftLabels, setDraftLabels] = useState<Label[]>(labels);
+  // Local copy of the contributor list, kept in step with Firestore as the user
+  // adds and removes people, plus the email being typed into the add field.
+  const [draftContributors, setDraftContributors] =
+    useState<string[]>(contributors);
+  const [newContributor, setNewContributor] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const normalizedCurrentUser = currentUserEmail.trim().toLowerCase();
+
   function fail(err: unknown, fallback: string) {
     setError(err instanceof Error ? err.message : fallback);
+  }
+
+  async function handleAddContributor() {
+    const normalized = newContributor.trim().toLowerCase();
+    if (!normalized) return;
+    if (draftContributors.includes(normalized)) {
+      setNewContributor("");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      await addContributor(projectId, normalized);
+      setDraftContributors((prev) => [...prev, normalized]);
+      setNewContributor("");
+      onContributorAdded(normalized);
+    } catch (err) {
+      fail(err, "Failed to add the contributor.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemoveContributor(email: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      await removeContributor(projectId, email);
+      setDraftContributors((prev) => prev.filter((c) => c !== email));
+      onContributorRemoved(email);
+    } catch (err) {
+      fail(err, "Failed to remove the contributor.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveTitle() {
@@ -158,6 +212,67 @@ export default function ProjectSettingsModal({
               className="rounded-lg border border-black/[.12] bg-transparent px-3 py-2 text-base text-black outline-none focus:border-black dark:border-white/[.18] dark:text-zinc-50 dark:focus:border-white"
             />
           </label>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Contributors
+            </span>
+            <div className="flex flex-col gap-2">
+              {draftContributors.map((email) => {
+                const isSelf = email === normalizedCurrentUser;
+                return (
+                  <div key={email} className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm text-black dark:text-zinc-50">
+                      {email}
+                      {isSelf && (
+                        <span className="text-zinc-400 dark:text-zinc-500">
+                          {" "}
+                          (you)
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoveContributor(email)}
+                      disabled={busy || isSelf}
+                      aria-label={`Remove ${email}`}
+                      title={
+                        isSelf
+                          ? "You can't remove yourself from a project"
+                          : undefined
+                      }
+                      className="shrink-0 text-xl leading-none text-zinc-400 hover:text-red-600 disabled:opacity-50 disabled:hover:text-zinc-400 dark:hover:text-red-400"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="email"
+                placeholder="name@example.com"
+                value={newContributor}
+                onChange={(event) => setNewContributor(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleAddContributor();
+                  }
+                }}
+                className="h-8 min-w-0 flex-1 rounded-md border border-black/[.12] bg-transparent px-2 text-sm text-black outline-none focus:border-black dark:border-white/[.18] dark:text-zinc-50 dark:focus:border-white"
+              />
+              <button
+                type="button"
+                onClick={() => void handleAddContributor()}
+                disabled={busy || newContributor.trim().length === 0}
+                className="shrink-0 text-sm font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+              >
+                Add
+              </button>
+            </div>
+          </div>
 
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">

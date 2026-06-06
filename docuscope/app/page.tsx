@@ -178,6 +178,7 @@ export default function Home() {
         onBack={() => {selectProject(null); setSelectedProject(null);}}
 
         userId={user.uid}
+        userEmail={user.email ?? ""}
       />
     );
   }
