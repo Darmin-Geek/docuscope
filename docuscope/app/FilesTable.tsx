@@ -60,18 +60,13 @@ export default function FilesTable({
         {files.map((file) => (
           <tr
             key={file.id}
-            className={`border-b border-black/[.04] dark:border-white/[.06] ${
+            onClick={() => onSelectFile(file)}
+            className={`cursor-pointer border-b border-black/[.04] hover:bg-black/[.04] dark:border-white/[.06] dark:hover:bg-white/[.06] ${
               file.id === selectedId ? "bg-black/[.04] dark:bg-white/[.06]" : ""
             }`}
           >
-            <td className="py-2 pr-4">
-              <button
-                type="button"
-                onClick={() => onSelectFile(file)}
-                className="text-left text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-300"
-              >
-                {file.filename}
-              </button>
+            <td className="py-2 pr-4 text-zinc-700 dark:text-zinc-300">
+              {file.filename}
             </td>
             <td className="py-2 pr-4 text-zinc-700 dark:text-zinc-300">
               {file.author ?? ""}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import {
   getFileDownloadUrl,
   updateFileMetadata,
@@ -54,6 +54,10 @@ export default function FileSidebar({
   const [dateValue, setDateValue] = useState(
     timestampToDateInput(file.createdDate),
   );
+  const [overallBias, setOverallBias] = useState(file.overallBias ?? "");
+  const [source, setSource] = useState(file.source ?? "");
+  const [reliability, setReliability] = useState(file.fileReliability ?? "");
+  const [credibility, setCredibility] = useState(file.fileCredibility ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,13 +86,23 @@ export default function FileSidebar({
     };
   }, [file.storageReference, kind]);
 
+  // Trim and collapse a blank field to null so cleared values are stored as
+  // "unset" rather than an empty string (see docs/dataModel.md).
+  function trimmedOrNull(value: string): string | null {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
-    const trimmedAuthor = author.trim();
     const metadata = {
-      author: trimmedAuthor.length > 0 ? trimmedAuthor : null,
+      author: trimmedOrNull(author),
       createdDate: dateInputToTimestamp(dateValue),
+      overallBias: trimmedOrNull(overallBias),
+      source: trimmedOrNull(source),
+      fileReliability: trimmedOrNull(reliability),
+      fileCredibility: trimmedOrNull(credibility),
     };
     try {
       await updateFileMetadata(projectId, file.id, metadata);
@@ -97,6 +111,15 @@ export default function FileSidebar({
       setError(err instanceof Error ? err.message : "Failed to save.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Enter submits from any single-line input. The paragraph textareas keep Enter
+  // for newlines and instead submit when they lose focus (see onBlur below).
+  function handleInputKeyDown(event: KeyboardEvent) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void handleSave();
     }
   }
 
@@ -119,44 +142,92 @@ export default function FileSidebar({
         </button>
       </header>
 
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-black dark:text-zinc-50">
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+        <label className="flex items-center gap-2">
+          <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
             Author
           </span>
           <input
             type="text"
             value={author}
             onChange={(event) => setAuthor(event.target.value)}
+            onKeyDown={handleInputKeyDown}
             placeholder="Unknown"
-            className="h-9 rounded-md border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+            className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
           />
         </label>
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-black dark:text-zinc-50">
+        <label className="flex items-center gap-2">
+          <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
             Date Created
           </span>
           <input
             type="date"
             value={dateValue}
             onChange={(event) => setDateValue(event.target.value)}
-            className="h-9 rounded-md border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
+            onKeyDown={handleInputKeyDown}
+            className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
           />
         </label>
 
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-        )}
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-black dark:text-zinc-50">
+            Overall Bias
+          </span>
+          <textarea
+            value={overallBias}
+            onChange={(event) => setOverallBias(event.target.value)}
+            onBlur={() => void handleSave()}
+            rows={3}
+            className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+          />
+        </label>
 
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="flex h-9 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-[#ccc]"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-black dark:text-zinc-50">
+            Source
+          </span>
+          <textarea
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+            onBlur={() => void handleSave()}
+            rows={3}
+            className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-black dark:text-zinc-50">
+            Reliability
+          </span>
+          <textarea
+            value={reliability}
+            onChange={(event) => setReliability(event.target.value)}
+            onBlur={() => void handleSave()}
+            rows={3}
+            className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-black dark:text-zinc-50">
+            Credibility
+          </span>
+          <textarea
+            value={credibility}
+            onChange={(event) => setCredibility(event.target.value)}
+            onBlur={() => void handleSave()}
+            rows={3}
+            className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+          />
+        </label>
+
+        {saving && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">Saving…</p>
+        )}
+        {error && (
+          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        )}
 
         <div className="mt-2 flex flex-1 flex-col gap-2 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
           <span className="text-sm font-medium text-black dark:text-zinc-50">
