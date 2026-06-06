@@ -9,6 +9,8 @@ import {
   deleteDoc,
   query,
   where,
+  onSnapshot,
+  runTransaction,
   arrayUnion,
   arrayRemove,
   type QueryDocumentSnapshot,
@@ -72,6 +74,12 @@ export type FileDoc = {
   source: string | null;
   fileReliability: string | null;
   fileCredibility: string | null;
+  /**
+   * The uid of the user who currently has the file checked out, or null when it
+   * is free (see docs/dataModel.md). While set to another user's uid, only they
+   * may write to the file, so the UI greys its fields out for everyone else.
+   */
+  checkedOutBy: string | null;
   /** Ids of the labels applied to this file (see docs/dataModel.md). */
   labels: string[];
 };
@@ -90,6 +98,7 @@ function fileFromSnapshot(snapshot: DocumentSnapshot): FileDoc {
     source: (data.source as string | null) ?? null,
     fileReliability: (data.fileReliability as string | null) ?? null,
     fileCredibility: (data.fileCredibility as string | null) ?? null,
+    checkedOutBy: (data.checkedOutBy as string | null) ?? null,
     labels: labelRefs.map((ref) => ref.id),
   };
 }
@@ -257,6 +266,7 @@ export async function uploadFile(
     source: null,
     fileReliability: null,
     fileCredibility: null,
+    checkedOutBy: null,
     labels: [] as DocumentReference[],
   };
   await setDoc(fileRef, fileData);
@@ -295,6 +305,61 @@ export async function updateFileMetadata(
     source: metadata.source,
     fileReliability: metadata.fileReliability,
     fileCredibility: metadata.fileCredibility,
+  });
+}
+
+/**
+ * Subscribe to a file document and receive the latest `FileDoc` whenever it
+ * changes in Firestore. Used so an open sidebar reflects another contributor's
+ * edits live — both who currently has it checked out and the saved field values
+ * they leave behind. Returns an unsubscribe function; snapshots for a deleted
+ * document are ignored.
+ */
+export function subscribeToFile(
+  projectId: string,
+  fileId: string,
+  onChange: (file: FileDoc) => void,
+): () => void {
+  return onSnapshot(
+    doc(db, "projects", projectId, "files", fileId),
+    (snapshot) => {
+      if (snapshot.exists()) onChange(fileFromSnapshot(snapshot));
+    },
+  );
+}
+
+/**
+ * Try to check a file out to a user by recording their uid in `checkedOutBy`
+ * (see docs/dataModel.md). Runs in a transaction so a simultaneous claim by two
+ * users has exactly one winner: the claim only succeeds when the file is free
+ * or already held by `uid`. Returns true when the caller now holds the lock and
+ * false when someone else got there first. While checked out, other users'
+ * clients grey the file's fields out and refuse edits.
+ */
+export async function checkOutFile(
+  projectId: string,
+  fileId: string,
+  uid: string,
+): Promise<boolean> {
+  const fileRef = doc(db, "projects", projectId, "files", fileId);
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(fileRef);
+    const current = (snapshot.data()?.checkedOutBy as string | null) ?? null;
+    if (current != null && current !== uid) {
+      return false;
+    }
+    transaction.update(fileRef, { checkedOutBy: uid });
+    return true;
+  });
+}
+
+/** Release a file's check-out so other users may edit it again. */
+export async function checkInFile(
+  projectId: string,
+  fileId: string,
+): Promise<void> {
+  await updateDoc(doc(db, "projects", projectId, "files", fileId), {
+    checkedOutBy: null,
   });
 }
 

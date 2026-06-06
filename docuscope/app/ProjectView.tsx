@@ -19,12 +19,16 @@ type ProjectViewProps = {
   // The signed-in user's display name, used as the author of uploaded files.
   // Null when they haven't set one, in which case the author is left blank.
   authorName: string | null;
+  // The signed-in user's Firebase auth uid, used to claim/recognise the file
+  // check-out lock so the sidebar can tell "me" from "another editor".
+  userId: string;
   onBack: () => void;
 };
 
 export default function ProjectView({
   project,
   authorName,
+  userId,
   onBack,
 }: ProjectViewProps) {
   // The selected folder is owned here so both the folder tree and the file
@@ -189,6 +193,7 @@ export default function ProjectView({
             projectId={project.id}
             file={selectedFile}
             labels={labels}
+            userId={userId}
             onClose={() => setSelectedFileId(null)}
             onSaved={handleFileSaved}
           />
