@@ -5,8 +5,10 @@ import {
   getFolders,
   createFolder,
   type Folder,
+  type Label,
 } from "@/lib/projects";
 import CreateFolderModal from "./CreateFolderModal";
+import LabelPill from "./LabelPill";
 
 type FolderViewProps = {
   projectId: string;
@@ -16,6 +18,12 @@ type FolderViewProps = {
   selectedId: string | null;
   onSelectChange: (folderId: string | null) => void;
   onUpload: (file: File) => void | Promise<void>;
+  // The project's labels and which are active as a filter. Toggling is owned by
+  // the parent so the file table reflects the same selection. `additive` is
+  // true when the user shift-clicks to combine labels.
+  labels: Label[];
+  selectedLabelIds: Set<string>;
+  onToggleLabel: (labelId: string, additive: boolean) => void;
 };
 
 export default function FolderView({
@@ -23,6 +31,9 @@ export default function FolderView({
   selectedId,
   onSelectChange,
   onUpload,
+  labels,
+  selectedLabelIds,
+  onToggleLabel,
 }: FolderViewProps) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,7 +190,7 @@ export default function FolderView({
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {loading ? (
           <p className="px-2 py-1 text-sm text-zinc-500 dark:text-zinc-400">
             Loading folders…
@@ -196,6 +207,35 @@ export default function FolderView({
           renderFolders(null, 0)
         )}
       </div>
+
+      {/* The bottom half of the sidebar lists the project's labels; clicking one
+          filters the file table to files carrying it (shift-click combines). */}
+      {labels.length > 0 && (
+        <div className="flex h-1/2 min-h-0 flex-col border-t border-black/[.08] dark:border-white/[.145]">
+          <span className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Labels
+          </span>
+          <div className="flex flex-wrap content-start gap-1.5 overflow-y-auto px-3 pb-3">
+            {labels.map((label) => {
+              const active = selectedLabelIds.has(label.id);
+              return (
+                <LabelPill
+                  key={label.id}
+                  label={label.label}
+                  color={label.color}
+                  filled={active}
+                  onClick={(event) => onToggleLabel(label.id, event.shiftKey)}
+                  title={
+                    active
+                      ? `Filtering by ${label.label}`
+                      : `Filter by ${label.label}`
+                  }
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {creating && (
         <CreateFolderModal

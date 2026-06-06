@@ -6,9 +6,11 @@ import {
   getDoc,
   getDocs,
   updateDoc,
+  deleteDoc,
   query,
   where,
   arrayUnion,
+  arrayRemove,
   type QueryDocumentSnapshot,
   type DocumentReference,
   type DocumentSnapshot,
@@ -33,6 +35,27 @@ export type Folder = {
 };
 
 /**
+ * A label option defined on a project (see docs/dataModel.md). Files reference
+ * labels by id; `color` is a hex string used to tint the label's pill.
+ */
+export type Label = {
+  id: string;
+  label: string;
+  color: string;
+};
+
+/**
+ * The labels every new project starts with. Order is meaningful: it mirrors a
+ * file's typical lifecycle from untouched to resolved.
+ */
+const DEFAULT_LABELS: { label: string; color: string }[] = [
+  { label: "Not started", color: "#9ca3af" },
+  { label: "Not Reviewed", color: "#f59e0b" },
+  { label: "Done", color: "#22c55e" },
+  { label: "Dead end", color: "#ef4444" },
+];
+
+/**
  * A file inside a project. `author` and `createdDate` are null until they are
  * filled in (see docs/dataModel.md), and the UI renders them blank when null.
  */
@@ -49,10 +72,14 @@ export type FileDoc = {
   source: string | null;
   fileReliability: string | null;
   fileCredibility: string | null;
+  /** Ids of the labels applied to this file (see docs/dataModel.md). */
+  labels: string[];
 };
 
 function fileFromSnapshot(snapshot: DocumentSnapshot): FileDoc {
   const data = snapshot.data() ?? {};
+  // `labels` is stored as a list of document references; the UI only needs ids.
+  const labelRefs = (data.labels as DocumentReference[] | undefined) ?? [];
   return {
     id: snapshot.id,
     filename: (data.filename as string) ?? "",
@@ -63,6 +90,16 @@ function fileFromSnapshot(snapshot: DocumentSnapshot): FileDoc {
     source: (data.source as string | null) ?? null,
     fileReliability: (data.fileReliability as string | null) ?? null,
     fileCredibility: (data.fileCredibility as string | null) ?? null,
+    labels: labelRefs.map((ref) => ref.id),
+  };
+}
+
+function labelFromSnapshot(snapshot: DocumentSnapshot): Label {
+  const data = snapshot.data() ?? {};
+  return {
+    id: snapshot.id,
+    label: (data.label as string) ?? "",
+    color: (data.color as string) ?? "#9ca3af",
   };
 }
 
@@ -105,7 +142,20 @@ export async function createProject(
     title: title.trim(),
     contributors,
   });
+
+  // Every project starts with a standard set of labels (see docs/dataModel.md).
+  const labels = collection(db, "projects", docRef.id, "labels");
+  await Promise.all(DEFAULT_LABELS.map((entry) => addDoc(labels, entry)));
+
   return docRef.id;
+}
+
+/** Rename a project. */
+export async function updateProjectTitle(
+  projectId: string,
+  title: string,
+): Promise<void> {
+  await updateDoc(doc(db, "projects", projectId), { title: title.trim() });
 }
 
 /** Fetch every folder in a project, flattened (the tree is built in the UI). */
@@ -207,6 +257,7 @@ export async function uploadFile(
     source: null,
     fileReliability: null,
     fileCredibility: null,
+    labels: [] as DocumentReference[],
   };
   await setDoc(fileRef, fileData);
 
@@ -216,7 +267,7 @@ export async function uploadFile(
     });
   }
 
-  return { id: fileRef.id, ...fileData };
+  return { id: fileRef.id, ...fileData, labels: [] };
 }
 
 /**
@@ -255,4 +306,87 @@ export async function getFileDownloadUrl(
   storageReference: string,
 ): Promise<string> {
   return getDownloadURL(ref(storage, storageReference));
+}
+
+/** List every label option defined on a project. */
+export async function getLabels(projectId: string): Promise<Label[]> {
+  const snapshot = await getDocs(
+    collection(db, "projects", projectId, "labels"),
+  );
+  return snapshot.docs.map(labelFromSnapshot);
+}
+
+/** Create a new label option on a project. Returns the new label. */
+export async function createLabel(
+  projectId: string,
+  label: string,
+  color: string,
+): Promise<Label> {
+  const trimmed = label.trim();
+  const docRef = await addDoc(collection(db, "projects", projectId, "labels"), {
+    label: trimmed,
+    color,
+  });
+  return { id: docRef.id, label: trimmed, color };
+}
+
+/** Rename a label and/or change its color. */
+export async function updateLabel(
+  projectId: string,
+  labelId: string,
+  fields: { label: string; color: string },
+): Promise<void> {
+  await updateDoc(doc(db, "projects", projectId, "labels", labelId), {
+    label: fields.label.trim(),
+    color: fields.color,
+  });
+}
+
+/**
+ * Delete a label option from a project, also removing it from every file that
+ * still references it so no dangling references are left behind.
+ */
+export async function deleteLabel(
+  projectId: string,
+  labelId: string,
+): Promise<void> {
+  const labelRef = doc(db, "projects", projectId, "labels", labelId);
+  const filesSnapshot = await getDocs(
+    collection(db, "projects", projectId, "files"),
+  );
+  await Promise.all(
+    filesSnapshot.docs
+      .filter((fileDoc) => {
+        const refs = (fileDoc.data().labels as DocumentReference[] | undefined) ?? [];
+        return refs.some((ref) => ref.id === labelId);
+      })
+      .map((fileDoc) =>
+        updateDoc(fileDoc.ref, { labels: arrayRemove(labelRef) }),
+      ),
+  );
+  await deleteDoc(labelRef);
+}
+
+/** Apply a label to a file (idempotent). */
+export async function addLabelToFile(
+  projectId: string,
+  fileId: string,
+  labelId: string,
+): Promise<void> {
+  const labelRef = doc(db, "projects", projectId, "labels", labelId);
+  await updateDoc(doc(db, "projects", projectId, "files", fileId), {
+    labels: arrayUnion(labelRef),
+  });
+}
+
+/** Remove a label from a file (idempotent). */
+export async function removeLabelFromFile(
+  projectId: string,
+  fileId: string,
+  labelId: string,
+): Promise<void> {
+  const labelRef = doc(db, "projects", projectId, "labels", labelId);
+  await updateDoc(doc(db, "projects", projectId, "files", fileId), {
+    labels: arrayRemove(labelRef),
+  });
 }
