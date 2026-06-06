@@ -1,0 +1,195 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  getFileDownloadUrl,
+  updateFileMetadata,
+  type FileDoc,
+} from "@/lib/projects";
+
+type FileSidebarProps = {
+  projectId: string;
+  file: FileDoc;
+  onClose: () => void;
+  // Called after a successful save so the parent can refresh its file list.
+  onSaved: (updated: FileDoc) => void;
+};
+
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+
+type PreviewKind = "image" | "pdf" | "unsupported";
+
+function previewKind(filename: string): PreviewKind {
+  const extension = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (IMAGE_EXTENSIONS.includes(extension)) return "image";
+  if (extension === "pdf") return "pdf";
+  return "unsupported";
+}
+
+// `createdDate` is a unix timestamp in seconds (see docs/dataModel.md); the
+// <input type="date"> wants a local "YYYY-MM-DD" string. These convert between
+// the two, treating the timestamp as a calendar day in the viewer's timezone.
+function timestampToDateInput(createdDate: number | null): string {
+  if (createdDate == null) return "";
+  const date = new Date(createdDate * 1000);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateInputToTimestamp(value: string): number | null {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  return Math.floor(new Date(year, month - 1, day).getTime() / 1000);
+}
+
+export default function FileSidebar({
+  projectId,
+  file,
+  onClose,
+  onSaved,
+}: FileSidebarProps) {
+  const [author, setAuthor] = useState(file.author ?? "");
+  const [dateValue, setDateValue] = useState(
+    timestampToDateInput(file.createdDate),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const kind = previewKind(file.filename);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Fetch a download URL for previewable files. The component is remounted per
+  // file (keyed by id in the parent), so the URL state starts fresh each time;
+  // the active guard just discards a response that resolves after unmount.
+  useEffect(() => {
+    if (kind === "unsupported") return;
+    let active = true;
+    getFileDownloadUrl(file.storageReference)
+      .then((url) => {
+        if (active) setPreviewUrl(url);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setPreviewError(
+          err instanceof Error ? err.message : "Failed to load preview.",
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [file.storageReference, kind]);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    const trimmedAuthor = author.trim();
+    const metadata = {
+      author: trimmedAuthor.length > 0 ? trimmedAuthor : null,
+      createdDate: dateInputToTimestamp(dateValue),
+    };
+    try {
+      await updateFileMetadata(projectId, file.id, metadata);
+      onSaved({ ...file, ...metadata });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <aside className="flex w-96 shrink-0 flex-col border-l border-black/[.08] bg-zinc-50 dark:border-white/[.145] dark:bg-black">
+      <header className="flex items-start justify-between gap-2 border-b border-black/[.08] p-4 dark:border-white/[.145]">
+        <h2
+          className="min-w-0 break-words text-lg font-semibold text-black dark:text-zinc-50"
+          title={file.filename}
+        >
+          {file.filename}
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+        >
+          ✕
+        </button>
+      </header>
+
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-black dark:text-zinc-50">
+            Author
+          </span>
+          <input
+            type="text"
+            value={author}
+            onChange={(event) => setAuthor(event.target.value)}
+            placeholder="Unknown"
+            className="h-9 rounded-md border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-black dark:text-zinc-50">
+            Date Created
+          </span>
+          <input
+            type="date"
+            value={dateValue}
+            onChange={(event) => setDateValue(event.target.value)}
+            className="h-9 rounded-md border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
+          />
+        </label>
+
+        {error && (
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        )}
+
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="flex h-9 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-[#ccc]"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+
+        <div className="mt-2 flex flex-1 flex-col gap-2 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
+          <span className="text-sm font-medium text-black dark:text-zinc-50">
+            Preview
+          </span>
+          {kind === "unsupported" ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Preview not implemented yet
+            </p>
+          ) : previewError ? (
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {previewError}
+            </p>
+          ) : !previewUrl ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Loading preview…
+            </p>
+          ) : kind === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewUrl}
+              alt={file.filename}
+              className="max-w-full rounded-md border border-black/[.08] dark:border-white/[.145]"
+            />
+          ) : (
+            <iframe
+              src={previewUrl}
+              title={file.filename}
+              className="h-96 w-full rounded-md border border-black/[.08] dark:border-white/[.145]"
+            />
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}

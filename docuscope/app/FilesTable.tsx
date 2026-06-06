@@ -6,6 +6,9 @@ type FilesTableProps = {
   files: FileDoc[];
   loading: boolean;
   error: string | null;
+  // The currently open file (highlighted), or null when the sidebar is closed.
+  selectedId: string | null;
+  onSelectFile: (file: FileDoc) => void;
 };
 
 // `createdDate` is a unix timestamp (seconds) the user enters, or null when
@@ -15,7 +18,13 @@ function formatDate(createdDate: number | null): string {
   return new Date(createdDate * 1000).toLocaleDateString();
 }
 
-export default function FilesTable({ files, loading, error }: FilesTableProps) {
+export default function FilesTable({
+  files,
+  loading,
+  error,
+  selectedId,
+  onSelectFile,
+}: FilesTableProps) {
   if (loading) {
     return (
       <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading files…</p>
@@ -51,10 +60,18 @@ export default function FilesTable({ files, loading, error }: FilesTableProps) {
         {files.map((file) => (
           <tr
             key={file.id}
-            className="border-b border-black/[.04] dark:border-white/[.06]"
+            className={`border-b border-black/[.04] dark:border-white/[.06] ${
+              file.id === selectedId ? "bg-black/[.04] dark:bg-white/[.06]" : ""
+            }`}
           >
-            <td className="py-2 pr-4 text-zinc-700 dark:text-zinc-300">
-              {file.filename}
+            <td className="py-2 pr-4">
+              <button
+                type="button"
+                onClick={() => onSelectFile(file)}
+                className="text-left text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-300"
+              >
+                {file.filename}
+              </button>
             </td>
             <td className="py-2 pr-4 text-zinc-700 dark:text-zinc-300">
               {file.author ?? ""}
