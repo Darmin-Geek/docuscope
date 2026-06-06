@@ -1,14 +1,24 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+} from "react";
 import {
   getFileDownloadUrl,
   updateFileMetadata,
   addLabelToFile,
   removeLabelFromFile,
+  subscribeToFile,
+  checkOutFile,
+  checkInFile,
   type FileDoc,
   type Label,
 } from "@/lib/projects";
+import { getUserProfile } from "@/lib/users";
 import LabelPill from "./LabelPill";
 
 type FileSidebarProps = {
@@ -17,6 +27,9 @@ type FileSidebarProps = {
   // Every label defined on the project, used to resolve the file's label ids
   // and to offer the ones not yet applied.
   labels: Label[];
+  // The signed-in user's uid, matched against the file's `checkedOutBy` lock so
+  // we can tell whether the current user or someone else is editing.
+  userId: string;
   onClose: () => void;
   // Called after a successful save so the parent can refresh its file list.
   onSaved: (updated: FileDoc) => void;
@@ -55,6 +68,7 @@ export default function FileSidebar({
   projectId,
   file,
   labels,
+  userId,
   onClose,
   onSaved,
 }: FileSidebarProps) {
@@ -68,6 +82,25 @@ export default function FileSidebar({
   const [credibility, setCredibility] = useState(file.fileCredibility ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The uid currently holding the file (see docs/dataModel.md), kept live via a
+  // Firestore subscription so a lock taken/released by another user shows up
+  // here without a refresh. `editorName` is that user's resolved display name.
+  const [checkedOutBy, setCheckedOutBy] = useState<string | null>(
+    file.checkedOutBy,
+  );
+  // The resolved profile of whoever holds the lock, kept keyed by uid so a name
+  // fetched for a previous holder is never shown for the current one.
+  const [editor, setEditor] = useState<{ uid: string; name: string | null } | null>(
+    null,
+  );
+  const lockedByOther = checkedOutBy != null && checkedOutBy !== userId;
+  const editorName = editor?.uid === checkedOutBy ? editor.name : null;
+
+  // Whether *we* hold the lock right now (between focusing a field and focus
+  // leaving the field group). A ref so the live subscription can avoid
+  // overwriting our in-progress edits without needing to re-subscribe.
+  const holdingLock = useRef(false);
 
   // Whether the "add label" picker (the unassigned labels) is showing.
   const [pickingLabel, setPickingLabel] = useState(false);
@@ -131,6 +164,89 @@ export default function FileSidebar({
     };
   }, [file.storageReference, kind]);
 
+  // Subscribe to the file so another user taking or releasing the lock — and
+  // the text they leave behind — shows up here live. We only adopt the saved
+  // values into the form when we aren't mid-edit ourselves, so this both
+  // mirrors another editor's changes and refreshes the fields the moment they
+  // release the lock (letting us edit the up-to-date text).
+  useEffect(() => {
+    const unsubscribe = subscribeToFile(projectId, file.id, (live) => {
+      setCheckedOutBy(live.checkedOutBy);
+      if (!holdingLock.current) {
+        setAuthor(live.author ?? "");
+        setDateValue(timestampToDateInput(live.createdDate));
+        setOverallBias(live.overallBias ?? "");
+        setSource(live.source ?? "");
+        setReliability(live.fileReliability ?? "");
+        setCredibility(live.fileCredibility ?? "");
+      }
+    });
+    return unsubscribe;
+  }, [projectId, file.id]);
+
+  // Resolve the other editor's uid to a display name for the banner. The banner
+  // is only shown while `lockedByOther`, and falls back to "Another user" until
+  // (or unless) this resolves.
+  useEffect(() => {
+    if (!lockedByOther || checkedOutBy == null) return;
+    let active = true;
+    const holder = checkedOutBy;
+    getUserProfile(holder)
+      .then((profile) => {
+        if (active) setEditor({ uid: holder, name: profile?.name.trim() || null });
+      })
+      .catch(() => {
+        // Fall back to the generic "Another user" label if the name won't load.
+      });
+    return () => {
+      active = false;
+    };
+  }, [lockedByOther, checkedOutBy]);
+
+  // Release the lock if the sidebar unmounts (file switched or closed) while we
+  // still hold it, so the file never stays stuck checked out to us.
+  useEffect(() => {
+    return () => {
+      if (holdingLock.current) {
+        holdingLock.current = false;
+        void checkInFile(projectId, file.id);
+      }
+    };
+  }, [projectId, file.id]);
+
+  // Claim the lock the first time the user focuses a field. Skipped when
+  // someone else holds it (their fields are disabled, so this can't fire) or
+  // when we already hold it. The claim is transactional: if another user wins
+  // the race we drop our optimistic hold, and the incoming snapshot disables
+  // the fields and discards whatever was typed in the meantime.
+  function claimLock() {
+    if (holdingLock.current || lockedByOther) return;
+    holdingLock.current = true;
+    checkOutFile(projectId, file.id, userId)
+      .then((claimed) => {
+        if (!claimed) holdingLock.current = false;
+      })
+      .catch(() => {
+        holdingLock.current = false;
+      });
+  }
+
+  // Release the lock once focus leaves the whole field group. `handleGroupBlur`
+  // first saves the edit, so the latest text is in Firestore before the lock
+  // frees and other users' screens update.
+  function releaseLock() {
+    if (!holdingLock.current) return;
+    holdingLock.current = false;
+    void checkInFile(projectId, file.id);
+  }
+
+  function handleGroupBlur(event: FocusEvent<HTMLDivElement>) {
+    // Ignore blurs that just move focus between fields within the group.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    void handleSave();
+    releaseLock();
+  }
+
   // Trim and collapse a blank field to null so cleared values are stored as
   // "unset" rather than an empty string (see docs/dataModel.md).
   function trimmedOrNull(value: string): string | null {
@@ -188,6 +304,15 @@ export default function FileSidebar({
       </header>
 
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+        {lockedByOther && (
+          <div
+            role="status"
+            className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+          >
+            {`${editorName ?? "Another user"} is currently editing these fields. They'll unlock when that user is done.`}
+          </div>
+        )}
+
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-black dark:text-zinc-50">
             Labels
@@ -198,8 +323,9 @@ export default function FileSidebar({
                 <button
                   type="button"
                   onClick={() => void handleRemoveLabel(label.id)}
+                  disabled={lockedByOther}
                   aria-label={`Remove ${label.label}`}
-                  className="leading-none opacity-70 hover:opacity-100"
+                  className="leading-none opacity-70 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
                 >
                   ×
                 </button>
@@ -209,7 +335,8 @@ export default function FileSidebar({
               <button
                 type="button"
                 onClick={() => setPickingLabel((open) => !open)}
-                className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                disabled={lockedByOther}
+                className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
               >
                 + Label
               </button>
@@ -232,84 +359,92 @@ export default function FileSidebar({
           )}
         </div>
 
-        <label className="flex items-center gap-2">
-          <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
-            Author
-          </span>
-          <input
-            type="text"
-            value={author}
-            onChange={(event) => setAuthor(event.target.value)}
-            onKeyDown={handleInputKeyDown}
-            placeholder="Unknown"
-            className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
-          />
-        </label>
+        {/* The text-entry fields share one focus/blur boundary: focusing any of
+            them checks the file out to this user, and focus leaving the whole
+            group saves and checks it back in. While another user holds the lock
+            every field is disabled and greyed out. */}
+        <div className="contents" onFocus={claimLock} onBlur={handleGroupBlur}>
+          <label className="flex items-center gap-2">
+            <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
+              Author
+            </span>
+            <input
+              type="text"
+              value={author}
+              onChange={(event) => setAuthor(event.target.value)}
+              onKeyDown={handleInputKeyDown}
+              disabled={lockedByOther}
+              placeholder="Unknown"
+              className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+            />
+          </label>
 
-        <label className="flex items-center gap-2">
-          <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
-            Date Created
-          </span>
-          <input
-            type="date"
-            value={dateValue}
-            onChange={(event) => setDateValue(event.target.value)}
-            onKeyDown={handleInputKeyDown}
-            className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
-          />
-        </label>
+          <label className="flex items-center gap-2">
+            <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
+              Date Created
+            </span>
+            <input
+              type="date"
+              value={dateValue}
+              onChange={(event) => setDateValue(event.target.value)}
+              onKeyDown={handleInputKeyDown}
+              disabled={lockedByOther}
+              className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
+            />
+          </label>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-black dark:text-zinc-50">
-            Overall Bias
-          </span>
-          <textarea
-            value={overallBias}
-            onChange={(event) => setOverallBias(event.target.value)}
-            onBlur={() => void handleSave()}
-            rows={3}
-            className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
-          />
-        </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-black dark:text-zinc-50">
+              Overall Bias
+            </span>
+            <textarea
+              value={overallBias}
+              onChange={(event) => setOverallBias(event.target.value)}
+              disabled={lockedByOther}
+              rows={3}
+              className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+            />
+          </label>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-black dark:text-zinc-50">
-            Source
-          </span>
-          <textarea
-            value={source}
-            onChange={(event) => setSource(event.target.value)}
-            onBlur={() => void handleSave()}
-            rows={3}
-            className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
-          />
-        </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-black dark:text-zinc-50">
+              Source
+            </span>
+            <textarea
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
+              disabled={lockedByOther}
+              rows={3}
+              className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+            />
+          </label>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-black dark:text-zinc-50">
-            Reliability
-          </span>
-          <textarea
-            value={reliability}
-            onChange={(event) => setReliability(event.target.value)}
-            onBlur={() => void handleSave()}
-            rows={3}
-            className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
-          />
-        </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-black dark:text-zinc-50">
+              Reliability
+            </span>
+            <textarea
+              value={reliability}
+              onChange={(event) => setReliability(event.target.value)}
+              disabled={lockedByOther}
+              rows={3}
+              className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+            />
+          </label>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-black dark:text-zinc-50">
-            Credibility
-          </span>
-          <textarea
-            value={credibility}
-            onChange={(event) => setCredibility(event.target.value)}
-            onBlur={() => void handleSave()}
-            rows={3}
-            className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
-          />
-        </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-black dark:text-zinc-50">
+              Credibility
+            </span>
+            <textarea
+              value={credibility}
+              onChange={(event) => setCredibility(event.target.value)}
+              disabled={lockedByOther}
+              rows={3}
+              className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+            />
+          </label>
+        </div>
 
         {saving && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400">Saving…</p>
