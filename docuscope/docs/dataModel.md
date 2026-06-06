@@ -24,6 +24,7 @@ Each document in the projects collection has the following subcollections:
 The id of the document is the user's firebase authentication userid.
 Each document has the following information
 * name: a string that is the user's full name.
+* email: the user's (lowercased) authentication email. Recorded on sign-in so contributors, who are tracked by email, can be mapped back to their userid — for example to release the file locks they hold when they are removed from a project.
 
 
 ## Documents in files collections

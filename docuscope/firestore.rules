@@ -13,8 +13,13 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null
         && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['name'])
-        && request.resource.data.name is string;
+        && request.resource.data.keys().hasOnly(['name', 'email'])
+        && (!('name' in request.resource.data) || request.resource.data.name is string)
+        // The recorded email is used to map contributor emails back to a uid, so
+        // a user may only store their OWN auth email (compared case-insensitively
+        // since stored emails are lower-cased).
+        && (!('email' in request.resource.data)
+            || request.resource.data.email == request.auth.token.email.lower());
     }
 
     // A project — and everything inside it — is private to its contributors.

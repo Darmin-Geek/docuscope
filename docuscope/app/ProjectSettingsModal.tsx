@@ -55,6 +55,9 @@ export default function ProjectSettingsModal({
   const [draftContributors, setDraftContributors] =
     useState<string[]>(contributors);
   const [newContributor, setNewContributor] = useState("");
+  // The contributor email awaiting a remove confirmation, or null when no
+  // confirmation dialog is open.
+  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -92,6 +95,7 @@ export default function ProjectSettingsModal({
       await removeContributor(projectId, email);
       setDraftContributors((prev) => prev.filter((c) => c !== email));
       onContributorRemoved(email);
+      setPendingRemoval(null);
     } catch (err) {
       fail(err, "Failed to remove the contributor.");
     } finally {
@@ -173,6 +177,7 @@ export default function ProjectSettingsModal({
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
@@ -233,7 +238,7 @@ export default function ProjectSettingsModal({
                     </span>
                     <button
                       type="button"
-                      onClick={() => void handleRemoveContributor(email)}
+                      onClick={() => setPendingRemoval(email)}
                       disabled={busy || isSelf}
                       aria-label={`Remove ${email}`}
                       title={
@@ -335,5 +340,49 @@ export default function ProjectSettingsModal({
         </div>
       </div>
     </div>
+
+    {pendingRemoval && (
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+        onClick={() => {
+          if (!busy) setPendingRemoval(null);
+        }}
+      >
+        <div
+          className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-zinc-900"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h3 className="text-lg font-semibold text-black dark:text-zinc-50">
+            Remove contributor?
+          </h3>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <span className="font-medium text-black dark:text-zinc-50">
+              {pendingRemoval}
+            </span>{" "}
+            will lose access to this project, and any files they have checked out
+            will be unlocked for others to edit.
+          </p>
+          <div className="mt-6 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setPendingRemoval(null)}
+              disabled={busy}
+              className="flex h-9 items-center justify-center rounded-full border border-solid border-black/[.12] px-4 text-sm font-medium transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.18] dark:hover:bg-[#1a1a1a]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRemoveContributor(pendingRemoval)}
+              disabled={busy}
+              className="flex h-9 items-center justify-center rounded-full bg-red-600 px-4 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+            >
+              {busy ? "Removing…" : "Remove"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

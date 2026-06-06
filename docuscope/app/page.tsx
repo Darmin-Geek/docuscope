@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { onAuthChange, logOut, type User } from "@/lib/auth";
 import { getProjectsForUser, type Project } from "@/lib/projects";
-import { getUserProfile } from "@/lib/users";
+import { getUserProfile, recordUserEmail } from "@/lib/users";
 import AuthModal, { type AuthMode } from "./AuthModal";
 import ResetPasswordModal from "./ResetPasswordModal";
 import SettingsModal from "./SettingsModal";
@@ -103,6 +103,11 @@ export default function Home() {
       setUser(nextUser);
       setLoading(false);
       if (nextUser?.email) {
+        // Record the email→uid mapping so a contributor (tracked by email) can
+        // be resolved to their uid later, e.g. to release their file locks when
+        // they're removed from a project. Best-effort; a failure (such as a race
+        // with sign-out) shouldn't block loading projects.
+        recordUserEmail(nextUser.uid, nextUser.email).catch(() => {});
         loadProjects(nextUser.email);
       } else {
         setProjects([]);
