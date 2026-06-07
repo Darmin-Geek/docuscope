@@ -5,11 +5,15 @@ rules_version = '2';
 //    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
-    // Placeholder access for project files while the app is under construction:
-    // any signed-in user may read and write. Replace with real per-project
-    // rules before launch.
+    // A project's files in Storage are private to that project's contributors.
+    // The contributor list lives on the project's Firestore document (a list of
+    // emails, see docs/dataModel.md), so look it up and match the signed-in
+    // user's email against it.
     match /projects/{projectId}/files/{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email in
+          firestore.get(/databases/(default)/documents/projects/$(projectId)).data.contributors;
     }
 
     match /{allPaths=**} {
