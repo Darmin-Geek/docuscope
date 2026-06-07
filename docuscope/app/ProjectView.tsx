@@ -22,6 +22,9 @@ type ProjectViewProps = {
   // The signed-in user's Firebase auth uid, used to claim/recognise the file
   // check-out lock so the sidebar can tell "me" from "another editor".
   userId: string;
+  // The signed-in user's email, used by project settings to manage the
+  // contributor list (and stop them removing themselves).
+  userEmail: string;
   onBack: () => void;
 };
 
@@ -29,6 +32,7 @@ export default function ProjectView({
   project,
   authorName,
   userId,
+  userEmail,
   onBack,
 }: ProjectViewProps) {
   // The selected folder is owned here so both the folder tree and the file
@@ -45,6 +49,10 @@ export default function ProjectView({
   // Title is held locally so a rename in settings updates the header at once.
   const [title, setTitle] = useState(project.title);
   const [labels, setLabels] = useState<Label[]>([]);
+  // Held locally so add/remove in settings updates the list without a refetch.
+  const [contributors, setContributors] = useState<string[]>(
+    project.contributors,
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Labels currently filtering the file table. A file must carry every selected
   // label to appear; an empty set means no filtering.
@@ -205,7 +213,17 @@ export default function ProjectView({
           projectId={project.id}
           title={title}
           labels={labels}
+          contributors={contributors}
+          currentUserEmail={userEmail}
           onTitleSaved={setTitle}
+          onContributorAdded={(email) =>
+            setContributors((prev) =>
+              prev.includes(email) ? prev : [...prev, email],
+            )
+          }
+          onContributorRemoved={(email) =>
+            setContributors((prev) => prev.filter((c) => c !== email))
+          }
           onLabelCreated={(label) => setLabels((prev) => [...prev, label])}
           onLabelUpdated={(label) =>
             setLabels((prev) =>

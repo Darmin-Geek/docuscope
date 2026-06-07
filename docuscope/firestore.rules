@@ -13,17 +13,48 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null
         && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['name'])
-        && request.resource.data.name is string;
+        && request.resource.data.keys().hasOnly(['name', 'email'])
+        && (!('name' in request.resource.data) || request.resource.data.name is string)
+        // The recorded email is used to map contributor emails back to a uid, so
+        // a user may only store their OWN auth email (compared case-insensitively
+        // since stored emails are lower-cased).
+        && (!('email' in request.resource.data)
+            || request.resource.data.email == request.auth.token.email.lower());
     }
 
-    // Placeholder open access for the rest of the database while the app is
-    // under construction. This allows anyone with your database reference to
-    // view, edit, and delete this data; it is configured to expire so the app
-    // is not left open to attackers indefinitely. Write real rules for these
-    // collections before this date or all client requests will be denied.
-    match /projects/{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 7, 5);
+    // A project — and everything inside it — is private to its contributors.
+    // Contributors are stored as a list of emails on the project document (see
+    // docs/dataModel.md), so access is decided by matching the signed-in user's
+    // email against that list.
+    match /projects/{projectId} {
+      // True when the signed-in user's email is one of an EXISTING project's
+      // contributors. Uses `resource.data`, so it's only valid where the
+      // document already exists (read/update/delete), not on create.
+      function isContributor() {
+        return request.auth != null
+          && request.auth.token.email != null
+          && request.auth.token.email in resource.data.contributors;
+      }
+
+      // Reading, editing, or deleting a project requires being a contributor.
+      allow read, update, delete: if isContributor();
+
+      // A newly created project must list its creator (the signed-in user) as a
+      // contributor, so nobody can create a project they're then locked out of.
+      allow create: if request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email in request.resource.data.contributors;
+
+      // Every subcollection under a project (files, folders, labels and their
+      // own nested subcollections like information and comments) is reachable
+      // only by the parent project's contributors. The parent project is looked
+      // up by id to read its current contributor list.
+      match /{document=**} {
+        allow read, write: if request.auth != null
+          && request.auth.token.email != null
+          && request.auth.token.email in
+            get(/databases/$(database)/documents/projects/$(projectId)).data.contributors;
+      }
     }
   }
 }

@@ -19,6 +19,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "./firebase";
+import { getUidForEmail } from "./users";
 
 // All Firestore access for projects is funneled through these functions so the
 // UI never talks to Firebase directly (see docs/designPrinciples.md).
@@ -165,6 +166,68 @@ export async function updateProjectTitle(
   title: string,
 ): Promise<void> {
   await updateDoc(doc(db, "projects", projectId), { title: title.trim() });
+}
+
+/**
+ * Add a contributor to a project by email. The email is normalised (trimmed and
+ * lower-cased) the same way it is on project creation, so access checks line up
+ * regardless of how the address was typed. Idempotent, and returns the stored
+ * (normalised) form so callers can mirror it in their local list.
+ */
+export async function addContributor(
+  projectId: string,
+  email: string,
+): Promise<string> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) {
+    throw new Error("Enter an email address.");
+  }
+  await updateDoc(doc(db, "projects", projectId), {
+    contributors: arrayUnion(normalized),
+  });
+  return normalized;
+}
+
+/**
+ * Remove a contributor from a project. `email` must be the value as stored on
+ * the project (already normalised). Before dropping them, any file locks they
+ * still hold are released — otherwise those files would stay checked out (and
+ * so un-editable for everyone else) with no way for the departed contributor to
+ * check them back in. Idempotent.
+ */
+export async function removeContributor(
+  projectId: string,
+  email: string,
+): Promise<void> {
+  // Locks are keyed by uid (see `checkedOutBy` in docs/dataModel.md) while
+  // contributors are tracked by email, so resolve the email to a uid first. If
+  // it can't be resolved (the user has no recorded email) there are no locks we
+  // can attribute to them, so just drop them from the list.
+  const uid = await getUidForEmail(email);
+  if (uid) {
+    await releaseLocksHeldBy(projectId, uid);
+  }
+  await updateDoc(doc(db, "projects", projectId), {
+    contributors: arrayRemove(email),
+  });
+}
+
+/**
+ * Clear `checkedOutBy` on every file in a project currently checked out by the
+ * given uid, freeing those files for other contributors to edit.
+ */
+async function releaseLocksHeldBy(
+  projectId: string,
+  uid: string,
+): Promise<void> {
+  const filesSnapshot = await getDocs(
+    collection(db, "projects", projectId, "files"),
+  );
+  await Promise.all(
+    filesSnapshot.docs
+      .filter((fileDoc) => (fileDoc.data().checkedOutBy ?? null) === uid)
+      .map((fileDoc) => updateDoc(fileDoc.ref, { checkedOutBy: null })),
+  );
 }
 
 /** Fetch every folder in a project, flattened (the tree is built in the UI). */
