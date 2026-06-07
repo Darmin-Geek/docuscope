@@ -360,7 +360,7 @@ export default function FileSidebar({
             type="button"
             data-no-lock="true"
             onClick={onOpenInformation}
-            className="flex h-8 items-center justify-center rounded-md border border-black/[.08] bg-transparent text-xs font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-white/[.06]"
+            className="flex h-8 items-center justify-center rounded-md bg-black text-xs font-medium text-white transition-colors hover:bg-zinc-800"
           >
             Open information view
           </button>

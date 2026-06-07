@@ -45,17 +45,16 @@ export default function InformationSidebar({
 
   const [items, setItems] = useState<Information[]>([]);
 
-  // The entry open in the editor. `creating` is a brand-new unsaved draft;
-  // otherwise `selectedId` names the existing entry being edited. With neither
-  // set (or when the selected entry has been deleted), only the title list (top
-  // third) is shown.
+  // The entry open in the editor; `selectedId` names the existing entry being
+  // edited. With nothing selected (or when the selected entry has been deleted),
+  // only the title list (top third) is shown. New entries are created up front
+  // so they appear in the list immediately, so there is no unsaved-draft state.
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   const selectedItem =
     selectedId != null
       ? items.find((entry) => entry.id === selectedId) ?? null
       : null;
-  const editorOpen = creating || selectedItem !== null;
+  const editorOpen = selectedItem !== null;
 
   // The editor's fields. Title is always a plain string; the rest are paragraph
   // text areas, stored null when blank (see docs/dataModel.md).
@@ -82,17 +81,17 @@ export default function InformationSidebar({
   }, [projectId, file.id]);
 
   // Load the selected entry's saved values into the form. Skipped while we are
-  // editing (so we don't clobber typing) and when composing a new draft. If the
-  // open entry disappears (deleted by another user) `selectedItem` becomes null,
-  // which closes the editor on its own.
+  // editing (so we don't clobber typing). If the open entry disappears (deleted
+  // by another user) `selectedItem` becomes null, which closes the editor on its
+  // own.
   useEffect(() => {
-    if (creating || selectedItem == null || editingInfo.current) return;
+    if (selectedItem == null || editingInfo.current) return;
     setTitle(selectedItem.informationTitle);
     setText(selectedItem.informationText ?? "");
     setBias(selectedItem.overallBias ?? "");
     setReliability(selectedItem.informationReliability ?? "");
     setCredibility(selectedItem.informationCredibility ?? "");
-  }, [selectedItem, creating]);
+  }, [selectedItem]);
 
   // If another user grabs the lock, stop guarding the fields so the live values
   // replace whatever we had typed and the disabled inputs show the truth.
@@ -102,19 +101,25 @@ export default function InformationSidebar({
 
   function openEntry(item: Information) {
     setError(null);
-    setCreating(false);
     setSelectedId(item.id);
   }
 
-  function startNew() {
+  // Create a blank entry up front so it shows in the list immediately (via the
+  // live subscription), then open it for editing.
+  async function startNew() {
     setError(null);
-    setSelectedId(null);
-    setCreating(true);
-    setTitle("");
-    setText("");
-    setBias("");
-    setReliability("");
-    setCredibility("");
+    try {
+      const id = await addInformation(projectId, file.id, {
+        informationTitle: "",
+        informationText: null,
+        overallBias: null,
+        informationReliability: null,
+        informationCredibility: null,
+      });
+      setSelectedId(id);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to add information.");
+    }
   }
 
   // Claim the lock when the form gains focus, releasing it once focus leaves the
@@ -140,6 +145,7 @@ export default function InformationSidebar({
   }
 
   async function handleSave() {
+    if (!selectedId) return;
     const fields = {
       informationTitle: title.trim(),
       informationText: trimmedOrNull(text),
@@ -147,25 +153,11 @@ export default function InformationSidebar({
       informationReliability: trimmedOrNull(reliability),
       informationCredibility: trimmedOrNull(credibility),
     };
-    // Don't persist an untouched new draft (every field still blank).
-    const isEmpty =
-      fields.informationTitle === "" &&
-      fields.informationText == null &&
-      fields.overallBias == null &&
-      fields.informationReliability == null &&
-      fields.informationCredibility == null;
 
     setSaving(true);
     setError(null);
     try {
-      if (creating) {
-        if (isEmpty) return;
-        const id = await addInformation(projectId, file.id, fields);
-        setCreating(false);
-        setSelectedId(id);
-      } else if (selectedId) {
-        await updateInformation(projectId, file.id, selectedId, fields);
-      }
+      await updateInformation(projectId, file.id, selectedId, fields);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save.");
     } finally {
@@ -187,7 +179,6 @@ export default function InformationSidebar({
     await deleteInformation(projectId, file.id, deleteTarget.id);
     if (selectedId === deleteTarget.id) {
       setSelectedId(null);
-      setCreating(false);
     }
     setDeleteTarget(null);
   }
