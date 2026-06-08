@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FocusEvent,
@@ -10,6 +11,7 @@ import {
 import {
   addInformation,
   deleteInformation,
+  newInformationId,
   subscribeToInformation,
   updateInformation,
   type FileDoc,
@@ -44,6 +46,17 @@ export default function InformationSidebar({
   const { lockedByOther, editorName } = lock;
 
   const [items, setItems] = useState<Information[]>([]);
+  // Entries created locally that the live subscription hasn't echoed back yet.
+  // They let a new entry appear in the list and open for editing immediately,
+  // without waiting for Firebase to acknowledge the create.
+  const [pending, setPending] = useState<Information[]>([]);
+
+  // The list shown in the UI: live entries plus any pending creates not yet
+  // present in the live data (deduped by id, live winning).
+  const allItems = useMemo(() => {
+    const liveIds = new Set(items.map((entry) => entry.id));
+    return [...items, ...pending.filter((entry) => !liveIds.has(entry.id))];
+  }, [items, pending]);
 
   // The entry open in the editor; `selectedId` names the existing entry being
   // edited. With nothing selected (or when the selected entry has been deleted),
@@ -52,7 +65,7 @@ export default function InformationSidebar({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedItem =
     selectedId != null
-      ? items.find((entry) => entry.id === selectedId) ?? null
+      ? allItems.find((entry) => entry.id === selectedId) ?? null
       : null;
   const editorOpen = selectedItem !== null;
 
@@ -75,10 +88,29 @@ export default function InformationSidebar({
   const editingInfo = useRef(false);
 
   // Keep the list of entries live so titles added/removed/renamed by any
-  // contributor (or by us) show up without a refresh.
+  // contributor (or by us) show up without a refresh. Each update also drops any
+  // optimistic creates the live data now includes, so `pending` doesn't grow
+  // without bound and the live copy becomes the source of truth.
   useEffect(() => {
-    return subscribeToInformation(projectId, file.id, setItems);
+    return subscribeToInformation(projectId, file.id, (live) => {
+      setItems(live);
+      setPending((prev) =>
+        prev.filter((entry) => !live.some((entry2) => entry2.id === entry.id)),
+      );
+    });
   }, [projectId, file.id]);
+
+  // Release the file lock if the panel unmounts while we still hold it (e.g. the
+  // user closes the view mid-edit), so the file doesn't stay checked out.
+  useEffect(() => {
+    return () => {
+      if (editingInfo.current) {
+        editingInfo.current = false;
+        lock.release();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load the selected entry's saved values into the form. Skipped while we are
   // editing (so we don't clobber typing). If the open entry disappears (deleted
@@ -104,22 +136,33 @@ export default function InformationSidebar({
     setSelectedId(item.id);
   }
 
-  // Create a blank entry up front so it shows in the list immediately (via the
-  // live subscription), then open it for editing.
-  async function startNew() {
+  // Create a blank entry and open it for editing right away. The entry is added
+  // to `pending` so it appears in the list and the editor opens immediately,
+  // without waiting for Firebase to acknowledge the write.
+  function startNew() {
     setError(null);
-    try {
-      const id = await addInformation(projectId, file.id, {
-        informationTitle: "",
-        informationText: null,
-        overallBias: null,
-        informationReliability: null,
-        informationCredibility: null,
-      });
-      setSelectedId(id);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to add information.");
-    }
+    const id = newInformationId(projectId, file.id);
+    const draft: Information = {
+      id,
+      informationTitle: "",
+      informationText: null,
+      overallBias: null,
+      informationReliability: null,
+      informationCredibility: null,
+    };
+    setPending((prev) => [...prev, draft]);
+    setSelectedId(id);
+    void addInformation(projectId, file.id, {
+      informationTitle: draft.informationTitle,
+      informationText: draft.informationText,
+      overallBias: draft.overallBias,
+      informationReliability: draft.informationReliability,
+      informationCredibility: draft.informationCredibility,
+    }, id).catch((err: unknown) => {
+      setError(
+        err instanceof Error ? err.message : "Failed to add information.",
+      );
+    });
   }
 
   // Claim the lock when the form gains focus, releasing it once focus leaves the
@@ -135,6 +178,16 @@ export default function InformationSidebar({
     if (!editingInfo.current) return;
     editingInfo.current = false;
     lock.release();
+  }
+
+  // Closing while a field is focused can't rely on the editor's blur firing
+  // (the inputs unmount), so save and release here before closing the panel.
+  function handleClose() {
+    if (editingInfo.current) {
+      void handleSave();
+      releaseLock();
+    }
+    onClose();
   }
 
   function handleGroupBlur(event: FocusEvent<HTMLDivElement>) {
@@ -194,7 +247,7 @@ export default function InformationSidebar({
         </h2>
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           aria-label="Close information view"
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
         >
@@ -217,12 +270,12 @@ export default function InformationSidebar({
           className={`flex min-h-0 flex-col ${editorOpen ? "basis-1/3" : "flex-1"}`}
         >
           <ul className="min-h-0 flex-1 overflow-y-auto p-2">
-            {items.length === 0 ? (
+            {allItems.length === 0 ? (
               <li className="px-2 py-2 text-xs text-zinc-500 dark:text-zinc-400">
                 No information yet.
               </li>
             ) : (
-              items.map((item) => (
+              allItems.map((item) => (
                 <li key={item.id}>
                   <div
                     className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${

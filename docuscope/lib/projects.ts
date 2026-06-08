@@ -478,19 +478,40 @@ export function subscribeToInformation(
 }
 
 /**
+ * Mint an id for a new information entry without writing anything. Lets the UI
+ * show a new entry immediately (and open it for editing) before the create has
+ * been acknowledged by Firebase.
+ */
+export function newInformationId(projectId: string, fileId: string): string {
+  return doc(collection(db, "projects", projectId, "files", fileId, "information"))
+    .id;
+}
+
+/**
  * Create a new information entry in a file's `information` subcollection. Only
  * the user holding the file's check-out may write here (enforced in the UI; see
- * docs/dataModel.md). Returns the new entry's id.
+ * docs/dataModel.md). Pass an `id` (e.g. from `newInformationId`) to create the
+ * entry at a known id; otherwise one is generated. Returns the entry's id.
  */
 export async function addInformation(
   projectId: string,
   fileId: string,
   fields: InformationFields,
+  id?: string,
 ): Promise<string> {
-  const docRef = await addDoc(
-    collection(db, "projects", projectId, "files", fileId, "information"),
-    fields,
+  const information = collection(
+    db,
+    "projects",
+    projectId,
+    "files",
+    fileId,
+    "information",
   );
+  if (id) {
+    await setDoc(doc(information, id), fields);
+    return id;
+  }
+  const docRef = await addDoc(information, fields);
   return docRef.id;
 }
 
