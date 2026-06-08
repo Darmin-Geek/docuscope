@@ -61,12 +61,11 @@ async function createLabel(page: Page, labelName: string): Promise<void> {
     page.getByRole("heading", { name: "Project Settings" })
   ).toBeVisible();
   await page.getByRole("button", { name: "+ Add label" }).click();
-  // The new label row is appended last; within the modal the only text inputs
-  // are the Title field and the label-name fields, so .last() reliably selects
-  // the freshly created one. Wait for it to be visible before filling.
-  await page.getByText("Done").waitFor()
+  // The new label row is appended last and is seeded with the value "New label";
+  // wait for that input rather than getByText("Done") (a default label whose text
+  // renders both here and as a FolderView filter pill, tripping strict mode).
   const newLabelInput = page.locator("input[type='text']").last();
-  await expect(newLabelInput).toBeVisible();
+  await expect(newLabelInput).toHaveValue("New label");
   await newLabelInput.fill(labelName);
   await newLabelInput.press("Enter");
   await page.getByRole("button", { name: "Close" }).click();
