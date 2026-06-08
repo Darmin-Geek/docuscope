@@ -15,9 +15,17 @@ import {
   subscribeToFile,
   checkOutFile,
   checkInFile,
+  getFolders,
+  getFolderFileIds,
+  moveFile,
   type FileDoc,
+  type Folder,
   type Label,
 } from "@/lib/projects";
+import {
+  flattenFolderTree,
+  findFolderContainingFile,
+} from "@/lib/folderTree";
 import { getUserProfile } from "@/lib/users";
 import LabelPill from "./LabelPill";
 
@@ -33,6 +41,10 @@ type FileSidebarProps = {
   onClose: () => void;
   // Called after a successful save so the parent can refresh its file list.
   onSaved: (updated: FileDoc) => void;
+  // Called after the file is moved to a different folder so the parent can
+  // reload its file list (the file may now belong to a different folder than the
+  // one being viewed).
+  onMoved: () => void;
 };
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
@@ -71,6 +83,7 @@ export default function FileSidebar({
   userId,
   onClose,
   onSaved,
+  onMoved,
 }: FileSidebarProps) {
   const [author, setAuthor] = useState(file.author ?? "");
   const [dateValue, setDateValue] = useState(
@@ -106,6 +119,15 @@ export default function FileSidebar({
   const [pickingLabel, setPickingLabel] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
 
+  // The project's folders (for the "move to folder" picker) and the id of the
+  // folder this file currently lives in — null means the project root. The
+  // current folder is tracked locally so it stays accurate after a move without
+  // re-reading every folder's `subfiles`.
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+
   const kind = previewKind(file.filename);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -116,6 +138,10 @@ export default function FileSidebar({
   const availableLabels = labels.filter(
     (label) => !file.labels.includes(label.id),
   );
+
+  // The folders offered by the "move to folder" picker, flattened into an
+  // indented list so nesting is visible in the <select>.
+  const folderOptions = flattenFolderTree(folders);
 
   async function handleAddLabel(labelId: string) {
     setLabelError(null);
@@ -140,6 +166,41 @@ export default function FileSidebar({
       setLabelError(
         err instanceof Error ? err.message : "Failed to remove label.",
       );
+    }
+  }
+
+  // Load the project's folders and work out which one currently holds this file
+  // so the picker can list every folder and pre-select the file's home. The
+  // active guard discards a response that resolves after the sidebar is closed
+  // or switched to another file.
+  useEffect(() => {
+    let active = true;
+    Promise.all([getFolders(projectId), getFolderFileIds(projectId)])
+      .then(([folderList, folderFileIds]) => {
+        if (!active) return;
+        setFolders(folderList);
+        setCurrentFolderId(findFolderContainingFile(folderFileIds, file.id));
+      })
+      .catch(() => {
+        // The picker just won't offer folders if this fails; not worth an error.
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId, file.id]);
+
+  async function handleMove(toFolderId: string | null) {
+    if (toFolderId === currentFolderId) return;
+    setMoving(true);
+    setMoveError(null);
+    try {
+      await moveFile(projectId, file.id, toFolderId);
+      setCurrentFolderId(toFolderId);
+      onMoved();
+    } catch (err: unknown) {
+      setMoveError(err instanceof Error ? err.message : "Failed to move file.");
+    } finally {
+      setMoving(false);
     }
   }
 
@@ -356,6 +417,30 @@ export default function FileSidebar({
           )}
           {labelError && (
             <p className="text-xs text-red-600 dark:text-red-400">{labelError}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-black dark:text-zinc-50">
+            Folder
+          </span>
+          <select
+            value={currentFolderId ?? ""}
+            onChange={(event) =>
+              void handleMove(event.target.value || null)
+            }
+            disabled={lockedByOther || moving}
+            className="h-7 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
+          >
+            <option value="">Project root</option>
+            {folderOptions.map(({ folder, depth }) => (
+              <option key={folder.id} value={folder.id}>
+                {`${"  ".repeat(depth)}${folder.folderName || "Untitled"}`}
+              </option>
+            ))}
+          </select>
+          {moveError && (
+            <p className="text-xs text-red-600 dark:text-red-400">{moveError}</p>
           )}
         </div>
 

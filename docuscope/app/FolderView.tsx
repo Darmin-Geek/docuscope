@@ -7,6 +7,7 @@ import {
   type Folder,
   type Label,
 } from "@/lib/projects";
+import { groupFoldersByParent } from "@/lib/folderTree";
 import CreateFolderModal from "./CreateFolderModal";
 import LabelPill from "./LabelPill";
 
@@ -82,18 +83,10 @@ export default function FolderView({
   }, [onSelectChange]);
 
   // Group folders by their parent so the tree can be rendered recursively.
-  const childrenByParent = useMemo(() => {
-    const map = new Map<string | null, Folder[]>();
-    for (const folder of folders) {
-      const siblings = map.get(folder.parentId) ?? [];
-      siblings.push(folder);
-      map.set(folder.parentId, siblings);
-    }
-    for (const siblings of map.values()) {
-      siblings.sort((a, b) => a.folderName.localeCompare(b.folderName));
-    }
-    return map;
-  }, [folders]);
+  const childrenByParent = useMemo(
+    () => groupFoldersByParent(folders),
+    [folders],
+  );
 
   // Clicking a folder both selects it and toggles whether its direct
   // subfolders are shown.

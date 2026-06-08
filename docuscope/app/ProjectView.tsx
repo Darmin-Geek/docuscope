@@ -204,6 +204,7 @@ export default function ProjectView({
             userId={userId}
             onClose={() => setSelectedFileId(null)}
             onSaved={handleFileSaved}
+            onMoved={() => void loadFiles()}
           />
         )}
       </div>
