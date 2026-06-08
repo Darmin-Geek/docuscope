@@ -52,10 +52,16 @@ export default function InformationSidebar({
   const [pending, setPending] = useState<Information[]>([]);
 
   // The list shown in the UI: live entries plus any pending creates not yet
-  // present in the live data (deduped by id, live winning).
+  // present in the live data. Built through a Map keyed by id so every entry is
+  // unique — an optimistic create and its echoed-back live copy share an id, so
+  // this guarantees React never sees duplicate keys while they briefly coexist.
   const allItems = useMemo(() => {
-    const liveIds = new Set(items.map((entry) => entry.id));
-    return [...items, ...pending.filter((entry) => !liveIds.has(entry.id))];
+    const byId = new Map<string, Information>();
+    for (const entry of items) byId.set(entry.id, entry);
+    for (const entry of pending) {
+      if (!byId.has(entry.id)) byId.set(entry.id, entry);
+    }
+    return [...byId.values()];
   }, [items, pending]);
 
   // The entry open in the editor; `selectedId` names the existing entry being
