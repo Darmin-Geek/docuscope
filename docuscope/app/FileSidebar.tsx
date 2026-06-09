@@ -45,6 +45,11 @@ type FileSidebarProps = {
   // reload its file list (the file may now belong to a different folder than the
   // one being viewed).
   onMoved: () => void;
+  // Called after a label is added to / removed from this file. Unlike onSaved,
+  // this hands back a mutator so the parent can apply the change against the
+  // freshest file state: adding two labels in quick succession must not lose the
+  // first one to a stale `file` snapshot captured in this component's closure.
+  onLabelsChanged: (fileId: string, nextLabels: (current: string[]) => string[]) => void;
 };
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
@@ -84,6 +89,7 @@ export default function FileSidebar({
   onClose,
   onSaved,
   onMoved,
+  onLabelsChanged,
 }: FileSidebarProps) {
   const [author, setAuthor] = useState(file.author ?? "");
   const [dateValue, setDateValue] = useState(
@@ -132,6 +138,40 @@ export default function FileSidebar({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  // Whether a download is in flight, used to disable the button so a slow
+  // network can't kick off several fetches at once.
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // Fetch the file's bytes and save them under its original name. We download
+  // the blob ourselves rather than linking straight to the storage URL because
+  // the `download` attribute is ignored for cross-origin URLs, which would open
+  // the file in the browser instead of saving it.
+  async function handleDownload() {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const url = await getFileDownloadUrl(file.storageReference);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Failed to download file.");
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = file.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err: unknown) {
+      setDownloadError(
+        err instanceof Error ? err.message : "Failed to download file.",
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   // Resolve the file's label ids against the project's labels, preserving the
   // project's label order. Ids without a matching label (e.g. deleted) drop out.
   const appliedLabels = labels.filter((label) => file.labels.includes(label.id));
@@ -148,7 +188,9 @@ export default function FileSidebar({
     setPickingLabel(false);
     try {
       await addLabelToFile(projectId, file.id, labelId);
-      onSaved({ ...file, labels: [...file.labels, labelId] });
+      onLabelsChanged(file.id, (current) =>
+        current.includes(labelId) ? current : [...current, labelId],
+      );
     } catch (err: unknown) {
       setLabelError(err instanceof Error ? err.message : "Failed to add label.");
     }
@@ -158,10 +200,9 @@ export default function FileSidebar({
     setLabelError(null);
     try {
       await removeLabelFromFile(projectId, file.id, labelId);
-      onSaved({
-        ...file,
-        labels: file.labels.filter((id) => id !== labelId),
-      });
+      onLabelsChanged(file.id, (current) =>
+        current.filter((id) => id !== labelId),
+      );
     } catch (err: unknown) {
       setLabelError(
         err instanceof Error ? err.message : "Failed to remove label.",
@@ -354,15 +395,46 @@ export default function FileSidebar({
         >
           {file.filename}
         </h2>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
-        >
-          ✕
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void handleDownload()}
+            disabled={downloading}
+            aria-label="Download file"
+            title="Download file"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          >
+            ✕
+          </button>
+        </div>
       </header>
+      {downloadError && (
+        <p className="border-b border-black/[.08] px-4 py-2 text-xs text-red-600 dark:border-white/[.145] dark:text-red-400">
+          {downloadError}
+        </p>
+      )}
 
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         {lockedByOther && (
