@@ -225,7 +225,7 @@ export default function ProjectView({
           // Sits to the left of the file detail sidebar, overlaying the file
           // table so only the file names stay visible.
           <InformationSidebar
-            key={selectedFile.id}
+            key={`info-${selectedFile.id}`}
             projectId={project.id}
             file={selectedFile}
             lock={lock}
@@ -235,7 +235,7 @@ export default function ProjectView({
         {selectedFile && (
           <FileSidebar
             // Remount on file change so the form resets to the new file's values.
-            key={selectedFile.id}
+            key={`detail-${selectedFile.id}`}
             projectId={project.id}
             file={selectedFile}
             labels={labels}

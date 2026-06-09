@@ -273,3 +273,36 @@ test.describe("Filtering", () => {
     ).toHaveCount(0);
   });
 });
+
+// ── Information view ──────────────────────────────────────────────────────────
+
+test.describe("Information view", () => {
+  test("opening the information view does not produce duplicate React key warnings", async ({ page }) => {
+    const consoleMessages: string[] = [];
+    page.on("console", (msg) => consoleMessages.push(msg.text()));
+
+    await signUpAndOpenProject(page, `info-view-${Date.now()}@test.com`);
+
+    const folderName = `Docs ${Date.now()}`;
+    await createFolder(page, folderName);
+
+    // Select the folder, then upload a file into it.
+    await page.getByRole("button", { name: folderName }).click();
+    await uploadFile(page, SVG.globe);
+
+    // Click the file in the table to open the file sidebar.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    // Open the information view.
+    await fileSidebar.getByRole("button", { name: "Open information view" }).click();
+    await expect(page.getByRole("heading", { name: "Information" })).toBeVisible();
+
+    // There should be no React duplicate-key warnings.
+    const duplicateKeyWarnings = consoleMessages.filter((msg) =>
+      msg.includes("same key")
+    );
+    expect(duplicateKeyWarnings).toHaveLength(0);
+  });
+});
