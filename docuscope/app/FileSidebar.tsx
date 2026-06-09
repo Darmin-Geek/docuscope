@@ -15,11 +15,19 @@ import {
   subscribeToFile,
   checkOutFile,
   checkInFile,
+  getFolders,
+  getFolderFileIds,
+  moveFile,
   type FileDoc,
+  type Folder,
   type Label,
 } from "@/lib/projects";
+import {
+  findFolderContainingFile,
+} from "@/lib/folderTree";
 import { getUserProfile } from "@/lib/users";
 import LabelPill from "./LabelPill";
+import MoveFileModal from "./MoveFileModal";
 
 type FileSidebarProps = {
   projectId: string;
@@ -33,6 +41,10 @@ type FileSidebarProps = {
   onClose: () => void;
   // Called after a successful save so the parent can refresh its file list.
   onSaved: (updated: FileDoc) => void;
+  // Called after the file is moved to a different folder so the parent can
+  // reload its file list (the file may now belong to a different folder than the
+  // one being viewed).
+  onMoved: () => void;
   // Called after a label is added to / removed from this file. Unlike onSaved,
   // this hands back a mutator so the parent can apply the change against the
   // freshest file state: adding two labels in quick succession must not lose the
@@ -76,6 +88,7 @@ export default function FileSidebar({
   userId,
   onClose,
   onSaved,
+  onMoved,
   onLabelsChanged,
 }: FileSidebarProps) {
   const [author, setAuthor] = useState(file.author ?? "");
@@ -111,6 +124,16 @@ export default function FileSidebar({
   // Whether the "add label" picker (the unassigned labels) is showing.
   const [pickingLabel, setPickingLabel] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
+
+  // The project's folders (for the "move to folder" picker) and the id of the
+  // folder this file currently lives in — null means the project root. The
+  // current folder is tracked locally so it stays accurate after a move without
+  // re-reading every folder's `subfiles`.
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
 
   const kind = previewKind(file.filename);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -181,6 +204,41 @@ export default function FileSidebar({
       setLabelError(
         err instanceof Error ? err.message : "Failed to remove label.",
       );
+    }
+  }
+
+  // Load the project's folders and work out which one currently holds this file
+  // so the picker can list every folder and pre-select the file's home. The
+  // active guard discards a response that resolves after the sidebar is closed
+  // or switched to another file.
+  useEffect(() => {
+    let active = true;
+    Promise.all([getFolders(projectId), getFolderFileIds(projectId)])
+      .then(([folderList, folderFileIds]) => {
+        if (!active) return;
+        setFolders(folderList);
+        setCurrentFolderId(findFolderContainingFile(folderFileIds, file.id));
+      })
+      .catch(() => {
+        // The picker just won't offer folders if this fails; not worth an error.
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId, file.id]);
+
+  async function handleMove(toFolderId: string | null) {
+    if (toFolderId === currentFolderId) return;
+    setMoving(true);
+    setMoveError(null);
+    try {
+      await moveFile(projectId, file.id, toFolderId);
+      setCurrentFolderId(toFolderId);
+      onMoved();
+    } catch (err: unknown) {
+      setMoveError(err instanceof Error ? err.message : "Failed to move file.");
+    } finally {
+      setMoving(false);
     }
   }
 
@@ -326,6 +384,7 @@ export default function FileSidebar({
   }
 
   return (
+    <>
     <aside className="flex w-96 shrink-0 flex-col border-l border-black/[.08] bg-zinc-50 dark:border-white/[.145] dark:bg-black">
       <header className="flex items-start justify-between gap-2 border-b border-black/[.08] p-4 dark:border-white/[.145]">
         <h2
@@ -358,6 +417,22 @@ export default function FileSidebar({
               <path d="m7 10 5 5 5-5" />
               <path d="M5 21h14" />
             </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMoveModalOpen(true)}
+            disabled={moving}
+            aria-label="Move file to folder"
+            title="Move file to folder"
+            className="flex h-7 items-center justify-center rounded-full px-1 text-zinc-500 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/move_folder_icon.svg"
+              alt=""
+              aria-hidden="true"
+              className="h-5 w-auto"
+            />
           </button>
           <button
             type="button"
@@ -430,6 +505,10 @@ export default function FileSidebar({
             <p className="text-xs text-red-600 dark:text-red-400">{labelError}</p>
           )}
         </div>
+
+        {moveError && (
+          <p className="text-xs text-red-600 dark:text-red-400">{moveError}</p>
+        )}
 
         {/* The text-entry fields share one focus/blur boundary: focusing any of
             them checks the file out to this user, and focus leaving the whole
@@ -558,5 +637,16 @@ export default function FileSidebar({
         </div>
       </div>
     </aside>
+
+    {moveModalOpen && (
+      <MoveFileModal
+        filename={file.filename}
+        folders={folders}
+        currentFolderId={currentFolderId}
+        onMove={handleMove}
+        onClose={() => setMoveModalOpen(false)}
+      />
+    )}
+    </>
   );
 }

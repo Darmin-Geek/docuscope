@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { type Folder } from "@/lib/projects";
+import { groupFoldersByParent } from "@/lib/folderTree";
 
 type FolderTreeProps = {
   folders: Folder[];
@@ -18,18 +19,10 @@ export default function FolderTree({
 }: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const childrenByParent = useMemo(() => {
-    const map = new Map<string | null, Folder[]>();
-    for (const folder of folders) {
-      const siblings = map.get(folder.parentId) ?? [];
-      siblings.push(folder);
-      map.set(folder.parentId, siblings);
-    }
-    for (const siblings of map.values()) {
-      siblings.sort((a, b) => a.folderName.localeCompare(b.folderName));
-    }
-    return map;
-  }, [folders]);
+  const childrenByParent = useMemo(
+    () => groupFoldersByParent(folders),
+    [folders],
+  );
 
   function toggleExpanded(folderId: string, event: React.MouseEvent) {
     // Stop propagation so clicking the expand triangle never triggers the
