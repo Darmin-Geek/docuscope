@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  getCustomFieldDefs,
   getFiles,
   getLabels,
   uploadFile,
+  type CustomFieldDef,
   type FileDoc,
   type Label,
   type Project,
@@ -53,6 +55,8 @@ export default function ProjectView({
   // Title is held locally so a rename in settings updates the header at once.
   const [title, setTitle] = useState(project.title);
   const [labels, setLabels] = useState<Label[]>([]);
+  const [fileCustomFieldDefs, setFileCustomFieldDefs] = useState<CustomFieldDef[]>([]);
+  const [infoCustomFieldDefs, setInfoCustomFieldDefs] = useState<CustomFieldDef[]>([]);
   // Held locally so add/remove in settings updates the list without a refetch.
   const [contributors, setContributors] = useState<string[]>(
     project.contributors,
@@ -64,7 +68,7 @@ export default function ProjectView({
     new Set(),
   );
 
-  // Load the project's labels once per project.
+  // Load the project's labels and custom field defs once per project.
   useEffect(() => {
     let active = true;
     getLabels(project.id)
@@ -73,6 +77,15 @@ export default function ProjectView({
       })
       .catch(() => {
         // Labels are non-critical chrome; ignore load failures silently.
+      });
+    getCustomFieldDefs(project.id)
+      .then((result) => {
+        if (!active) return;
+        setFileCustomFieldDefs(result.filter((def) => def.target === "file"));
+        setInfoCustomFieldDefs(result.filter((def) => def.target === "information"));
+      })
+      .catch(() => {
+        // Custom field defs are non-critical; ignore load failures silently.
       });
     return () => {
       active = false;
@@ -229,6 +242,7 @@ export default function ProjectView({
             projectId={project.id}
             file={selectedFile}
             lock={lock}
+            infoCustomFieldDefs={infoCustomFieldDefs}
             onClose={() => setInformationOpen(false)}
           />
         )}
@@ -240,6 +254,7 @@ export default function ProjectView({
             file={selectedFile}
             labels={labels}
             lock={lock}
+            fileCustomFieldDefs={fileCustomFieldDefs}
             onOpenInformation={() => setInformationOpen(true)}
             onClose={() => {
               setSelectedFileId(null);
@@ -258,6 +273,8 @@ export default function ProjectView({
           labels={labels}
           contributors={contributors}
           currentUserEmail={userEmail}
+          fileCustomFieldDefs={fileCustomFieldDefs}
+          infoCustomFieldDefs={infoCustomFieldDefs}
           onTitleSaved={setTitle}
           onContributorAdded={(email) =>
             setContributors((prev) =>
@@ -303,6 +320,40 @@ export default function ProjectView({
               return next;
             });
           }}
+          onFileFieldCreated={(def) =>
+            setFileCustomFieldDefs((prev) =>
+              prev.some((existing) => existing.id === def.id)
+                ? prev
+                : [...prev, def],
+            )
+          }
+          onFileFieldUpdated={(def) =>
+            setFileCustomFieldDefs((prev) =>
+              prev.map((existing) => (existing.id === def.id ? def : existing)),
+            )
+          }
+          onFileFieldDeleted={(defId) =>
+            setFileCustomFieldDefs((prev) =>
+              prev.filter((def) => def.id !== defId),
+            )
+          }
+          onInfoFieldCreated={(def) =>
+            setInfoCustomFieldDefs((prev) =>
+              prev.some((existing) => existing.id === def.id)
+                ? prev
+                : [...prev, def],
+            )
+          }
+          onInfoFieldUpdated={(def) =>
+            setInfoCustomFieldDefs((prev) =>
+              prev.map((existing) => (existing.id === def.id ? def : existing)),
+            )
+          }
+          onInfoFieldDeleted={(defId) =>
+            setInfoCustomFieldDefs((prev) =>
+              prev.filter((def) => def.id !== defId),
+            )
+          }
           onClose={() => setSettingsOpen(false)}
         />
       )}

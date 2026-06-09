@@ -13,6 +13,7 @@ import {
   addLabelToFile,
   removeLabelFromFile,
   subscribeToFile,
+  type CustomFieldDef,
   type FileDoc,
   type Label,
 } from "@/lib/projects";
@@ -28,6 +29,7 @@ type FileSidebarProps = {
   // The file's shared check-out lock, coordinated with the information sidebar
   // so editing either side checks the whole file out (see useFileLock).
   lock: FileLock;
+  fileCustomFieldDefs: CustomFieldDef[];
   // Opens the information sidebar to the left of this one.
   onOpenInformation: () => void;
   onClose: () => void;
@@ -74,6 +76,7 @@ export default function FileSidebar({
   file,
   labels,
   lock,
+  fileCustomFieldDefs,
   onOpenInformation,
   onClose,
   onSaved,
@@ -87,6 +90,9 @@ export default function FileSidebar({
   const [source, setSource] = useState(file.source ?? "");
   const [reliability, setReliability] = useState(file.fileReliability ?? "");
   const [credibility, setCredibility] = useState(file.fileCredibility ?? "");
+  const [customData, setCustomData] = useState<Record<string, string>>(
+    file.customData,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -208,6 +214,7 @@ export default function FileSidebar({
         setSource(live.source ?? "");
         setReliability(live.fileReliability ?? "");
         setCredibility(live.fileCredibility ?? "");
+        setCustomData(live.customData);
       }
     });
     return unsubscribe;
@@ -268,6 +275,7 @@ export default function FileSidebar({
       source: trimmedOrNull(source),
       fileReliability: trimmedOrNull(reliability),
       fileCredibility: trimmedOrNull(credibility),
+      customData,
     };
     try {
       await updateFileMetadata(projectId, file.id, metadata);
@@ -488,6 +496,26 @@ export default function FileSidebar({
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
           </label>
+
+          {fileCustomFieldDefs.map((def) => (
+            <label key={def.id} className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-black dark:text-zinc-50">
+                {def.name}
+              </span>
+              <textarea
+                value={customData[def.id] ?? ""}
+                onChange={(event) =>
+                  setCustomData((prev) => ({
+                    ...prev,
+                    [def.id]: event.target.value,
+                  }))
+                }
+                disabled={lockedByOther}
+                rows={3}
+                className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+              />
+            </label>
+          ))}
         </div>
 
         {saving && (

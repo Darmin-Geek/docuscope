@@ -3,11 +3,15 @@
 import { useState } from "react";
 import {
   addContributor,
+  createCustomFieldDef,
   createLabel,
+  deleteCustomFieldDef,
   deleteLabel,
   removeContributor,
+  updateCustomFieldDef,
   updateLabel,
   updateProjectTitle,
+  type CustomFieldDef,
   type Label,
 } from "@/lib/projects";
 import LabelPill from "./LabelPill";
@@ -20,12 +24,20 @@ type ProjectSettingsModalProps = {
   // The signed-in user's email, so the UI can stop them removing themselves
   // (which, under the security rules, would instantly revoke their own access).
   currentUserEmail: string;
+  fileCustomFieldDefs: CustomFieldDef[];
+  infoCustomFieldDefs: CustomFieldDef[];
   onTitleSaved: (title: string) => void;
   onLabelCreated: (label: Label) => void;
   onLabelUpdated: (label: Label) => void;
   onLabelDeleted: (labelId: string) => void;
   onContributorAdded: (email: string) => void;
   onContributorRemoved: (email: string) => void;
+  onFileFieldCreated: (def: CustomFieldDef) => void;
+  onFileFieldUpdated: (def: CustomFieldDef) => void;
+  onFileFieldDeleted: (defId: string) => void;
+  onInfoFieldCreated: (def: CustomFieldDef) => void;
+  onInfoFieldUpdated: (def: CustomFieldDef) => void;
+  onInfoFieldDeleted: (defId: string) => void;
   onClose: () => void;
 };
 
@@ -38,18 +50,30 @@ export default function ProjectSettingsModal({
   labels,
   contributors,
   currentUserEmail,
+  fileCustomFieldDefs,
+  infoCustomFieldDefs,
   onTitleSaved,
   onLabelCreated,
   onLabelUpdated,
   onLabelDeleted,
   onContributorAdded,
   onContributorRemoved,
+  onFileFieldCreated,
+  onFileFieldUpdated,
+  onFileFieldDeleted,
+  onInfoFieldCreated,
+  onInfoFieldUpdated,
+  onInfoFieldDeleted,
   onClose,
 }: ProjectSettingsModalProps) {
   const [titleValue, setTitleValue] = useState(title);
   // Local working copy so name/color edits feel instant; each change is also
   // persisted to Firestore and pushed up to the parent on blur.
   const [draftLabels, setDraftLabels] = useState<Label[]>(labels);
+  const [draftFileFields, setDraftFileFields] =
+    useState<CustomFieldDef[]>(fileCustomFieldDefs);
+  const [draftInfoFields, setDraftInfoFields] =
+    useState<CustomFieldDef[]>(infoCustomFieldDefs);
   // Local copy of the contributor list, kept in step with Firestore as the user
   // adds and removes people, plus the email being typed into the add field.
   const [draftContributors, setDraftContributors] =
@@ -171,6 +195,72 @@ export default function ProjectSettingsModal({
       onLabelDeleted(labelId);
     } catch (err) {
       fail(err, "Failed to delete the label.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function editDraftField(
+    target: "file" | "information",
+    defId: string,
+    name: string,
+  ) {
+    const setter = target === "file" ? setDraftFileFields : setDraftInfoFields;
+    setter((prev) =>
+      prev.map((def) => (def.id === defId ? { ...def, name } : def)),
+    );
+  }
+
+  async function commitField(target: "file" | "information", defId: string) {
+    const draftList = target === "file" ? draftFileFields : draftInfoFields;
+    const originalList = target === "file" ? fileCustomFieldDefs : infoCustomFieldDefs;
+    const draft = draftList.find((def) => def.id === defId);
+    const original = originalList.find((def) => def.id === defId);
+    if (!draft) return;
+    if (original && original.name === draft.name) return;
+    setError(null);
+    try {
+      await updateCustomFieldDef(projectId, defId, draft.name);
+      const onUpdated = target === "file" ? onFileFieldUpdated : onInfoFieldUpdated;
+      onUpdated({ ...draft, name: draft.name.trim() });
+    } catch (err) {
+      fail(err, "Failed to save the field.");
+    }
+  }
+
+  async function handleAddField(target: "file" | "information") {
+    setError(null);
+    setBusy(true);
+    try {
+      const created = await createCustomFieldDef(projectId, "New field", target);
+      if (target === "file") {
+        setDraftFileFields((prev) => [...prev, created]);
+        onFileFieldCreated(created);
+      } else {
+        setDraftInfoFields((prev) => [...prev, created]);
+        onInfoFieldCreated(created);
+      }
+    } catch (err) {
+      fail(err, "Failed to create the field.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteField(target: "file" | "information", defId: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      await deleteCustomFieldDef(projectId, defId, target);
+      if (target === "file") {
+        setDraftFileFields((prev) => prev.filter((def) => def.id !== defId));
+        onFileFieldDeleted(defId);
+      } else {
+        setDraftInfoFields((prev) => prev.filter((def) => def.id !== defId));
+        onInfoFieldDeleted(defId);
+      }
+    } catch (err) {
+      fail(err, "Failed to delete the field.");
     } finally {
       setBusy(false);
     }
@@ -331,6 +421,94 @@ export default function ProjectSettingsModal({
               className="self-start text-sm font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
             >
               + Add label
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              File Custom Fields
+            </span>
+            <div className="flex flex-col gap-2">
+              {draftFileFields.map((def) => (
+                <div key={def.id} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={def.name}
+                    onChange={(event) =>
+                      editDraftField("file", def.id, event.target.value)
+                    }
+                    onBlur={() => void commitField("file", def.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    className="h-8 min-w-0 flex-1 rounded-md border border-black/[.12] bg-transparent px-2 text-sm text-black outline-none focus:border-black dark:border-white/[.18] dark:text-zinc-50 dark:focus:border-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteField("file", def.id)}
+                    disabled={busy}
+                    aria-label={`Delete ${def.name}`}
+                    className="shrink-0 text-xl leading-none text-zinc-400 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleAddField("file")}
+              disabled={busy}
+              className="self-start text-sm font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+            >
+              + Add field
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Information Custom Fields
+            </span>
+            <div className="flex flex-col gap-2">
+              {draftInfoFields.map((def) => (
+                <div key={def.id} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={def.name}
+                    onChange={(event) =>
+                      editDraftField("information", def.id, event.target.value)
+                    }
+                    onBlur={() => void commitField("information", def.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    className="h-8 min-w-0 flex-1 rounded-md border border-black/[.12] bg-transparent px-2 text-sm text-black outline-none focus:border-black dark:border-white/[.18] dark:text-zinc-50 dark:focus:border-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteField("information", def.id)}
+                    disabled={busy}
+                    aria-label={`Delete ${def.name}`}
+                    className="shrink-0 text-xl leading-none text-zinc-400 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleAddField("information")}
+              disabled={busy}
+              className="self-start text-sm font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+            >
+              + Add field
             </button>
           </div>
 

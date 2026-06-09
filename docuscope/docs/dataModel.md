@@ -17,6 +17,7 @@ Each document in the projects collection has the following subcollections:
 * files
 * folders
 * labels
+* customFieldDefs
 
 
 ## Documents in the users collection
@@ -41,6 +42,7 @@ Each document has the following information:
 * fileReliability: a string
 * fileCredibility: a string 
 * labels: list of references to documents in labels
+* customData: a map from customFieldDef id to string value (absent or empty map when no custom fields have been filled in)
 * corroboratesWith: a list of references to documents in files collections
 * conflcitsWith: a list of references to documents in files collections
 * hasTheSameSourceAs: a list of references to documents in files collections
@@ -54,7 +56,8 @@ Each document in files collections has the following two subcollections:
 * informationText
 * overallBias: a string
 * informationReliability: a string
-* informationCredibility: a string 
+* informationCredibility: a string
+* customData: a map from customFieldDef id to string value (absent or empty map when no custom fields have been filled in)
 
 Each document in information collections have a comments subcollection as well, which has the same structure as comments for files.
 
@@ -79,3 +82,9 @@ The id of the document is a uuid that firebase generates.
 Each document has the following information:
 * label: a string
 * color: a string hexcode for the label's color
+
+## Documents in customFieldDefs collections
+The id of the document is a uuid that firebase generates.
+Each document has the following information:
+* name: a string that is the display name of the field
+* target: either "file" or "information" — determines which sidebar shows the field
