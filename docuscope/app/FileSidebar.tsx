@@ -397,7 +397,7 @@ export default function FileSidebar({
               src="/move_folder_icon.svg"
               alt=""
               aria-hidden="true"
-              className="h-5 w-auto"
+              className="h-4 w-auto"
             />
           </button>
           <button
@@ -585,7 +585,7 @@ export default function FileSidebar({
           </span>
           {kind === "unsupported" ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Preview not implemented yet
+              Preview not implemented yet for this file type
             </p>
           ) : previewError ? (
             <p className="text-sm text-red-600 dark:text-red-400">
