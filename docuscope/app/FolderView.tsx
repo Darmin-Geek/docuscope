@@ -81,6 +81,20 @@ export default function FolderView({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onSelectChange]);
 
+  // The labels list can briefly contain the same label id more than once — e.g.
+  // when a freshly created label is appended locally while an in-flight reload
+  // also resolves with it. Render each label id exactly once so the filter pills
+  // (and their titles) stay unique; otherwise Playwright's strict-mode locators
+  // and React's key uniqueness both break.
+  const uniqueLabels = useMemo(() => {
+    const seen = new Set<string>();
+    return labels.filter((label) => {
+      if (seen.has(label.id)) return false;
+      seen.add(label.id);
+      return true;
+    });
+  }, [labels]);
+
   // Group folders by their parent so the tree can be rendered recursively.
   const childrenByParent = useMemo(() => {
     const map = new Map<string | null, Folder[]>();
@@ -113,7 +127,14 @@ export default function FolderView({
   async function handleCreate(name: string) {
     const parentId = selectedId;
     const folder = await createFolder(projectId, name, parentId);
-    setFolders((prev) => [...prev, folder]);
+    // Append the new folder, guarding against a duplicate entry (e.g. a double
+    // submit or React's dev-mode double-invocation) so the tree never renders
+    // the same folder id twice and triggers a duplicate React key warning.
+    setFolders((prev) =>
+      prev.some((existing) => existing.id === folder.id)
+        ? prev
+        : [...prev, folder],
+    );
     // Reveal the new folder by expanding its parent (if any).
     if (parentId) {
       setExpanded((prev) => new Set(prev).add(parentId));
@@ -210,13 +231,13 @@ export default function FolderView({
 
       {/* The bottom half of the sidebar lists the project's labels; clicking one
           filters the file table to files carrying it (shift-click combines). */}
-      {labels.length > 0 && (
+      {uniqueLabels.length > 0 && (
         <div className="flex h-1/2 min-h-0 flex-col border-t border-black/[.08] dark:border-white/[.145]">
           <span className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Labels
           </span>
           <div className="flex flex-wrap content-start gap-1.5 overflow-y-auto px-3 pb-3">
-            {labels.map((label) => {
+            {uniqueLabels.map((label) => {
               const active = selectedLabelIds.has(label.id);
               return (
                 <LabelPill
