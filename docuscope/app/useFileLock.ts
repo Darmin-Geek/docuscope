@@ -49,7 +49,7 @@ export function useFileLock(
   // How many editing sessions (focused field groups) currently want the lock,
   // and whether we have actually claimed it in Firestore. Refs so the live
   // subscription and focus handlers can coordinate without re-rendering.
-  const holders = useRef(0);
+  const claimants = useRef<number>(0);
   const holding = useRef(false);
 
   const lockedByOther = checkedOutBy != null && checkedOutBy !== userId;
@@ -60,7 +60,7 @@ export function useFileLock(
   // inherits the previous one's session count.
   useEffect(() => {
     if (!fileId) return;
-    holders.current = 0;
+    claimants.current = 0;
     holding.current = false;
     return subscribeToFile(projectId, fileId, (live) => {
       setHeld({ fileId, uid: live.checkedOutBy });
@@ -86,7 +86,7 @@ export function useFileLock(
 
   const acquire = useCallback(() => {
     if (!fileId) return;
-    holders.current += 1;
+    claimants.current += 1;
     if (holding.current) return;
     holding.current = true;
     // Transactional claim: if another user wins the race we drop our hold and
@@ -102,8 +102,8 @@ export function useFileLock(
 
   const release = useCallback(() => {
     if (!fileId) return;
-    if (holders.current > 0) holders.current -= 1;
-    if (holders.current > 0) return;
+    if (claimants.current > 0) claimants.current -= 1;
+    if (claimants.current > 0) return;
     if (!holding.current) return;
     holding.current = false;
     void checkInFile(projectId, fileId);
@@ -115,7 +115,7 @@ export function useFileLock(
     return () => {
       if (!holding.current) return;
       holding.current = false;
-      holders.current = 0;
+      claimants.current = 0;
       if (fileId) void checkInFile(projectId, fileId);
     };
   }, [projectId, fileId]);
