@@ -1,0 +1,1 @@
+@docuscope/CLAUDE.md
