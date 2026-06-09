@@ -139,6 +139,22 @@ export default function ProjectView({
     );
   }
 
+  // Apply a label add/remove against the freshest file state. Adding two labels
+  // in quick succession must accumulate rather than clobber, so the mutation is
+  // expressed as a function of the current label list, not a stale snapshot.
+  function handleFileLabelsChanged(
+    fileId: string,
+    nextLabels: (current: string[]) => string[],
+  ) {
+    setFiles((prev) =>
+      prev.map((file) =>
+        file.id === fileId
+          ? { ...file, labels: nextLabels(file.labels) }
+          : file,
+      ),
+    );
+  }
+
   // Within the already-loaded files (the project, or the selected folder), keep
   // only those carrying every selected label. No selection means no filtering.
   const visibleFiles = useMemo(() => {
@@ -205,6 +221,7 @@ export default function ProjectView({
             onClose={() => setSelectedFileId(null)}
             onSaved={handleFileSaved}
             onMoved={() => void loadFiles()}
+            onLabelsChanged={handleFileLabelsChanged}
           />
         )}
       </div>
@@ -225,7 +242,16 @@ export default function ProjectView({
           onContributorRemoved={(email) =>
             setContributors((prev) => prev.filter((c) => c !== email))
           }
-          onLabelCreated={(label) => setLabels((prev) => [...prev, label])}
+          onLabelCreated={(label) =>
+            // Guard against adding a label that is already present: the labels
+            // load effect reads from Firestore and may have already included a
+            // freshly-created doc, so a plain append can duplicate it by id.
+            setLabels((prev) =>
+              prev.some((existing) => existing.id === label.id)
+                ? prev
+                : [...prev, label],
+            )
+          }
           onLabelUpdated={(label) =>
             setLabels((prev) =>
               prev.map((existing) =>
