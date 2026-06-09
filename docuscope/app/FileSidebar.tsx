@@ -42,12 +42,13 @@ type FileSidebarProps = {
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 
-type PreviewKind = "image" | "pdf" | "unsupported";
+type PreviewKind = "image" | "pdf" | "docx" | "unsupported";
 
 function previewKind(filename: string): PreviewKind {
   const extension = filename.split(".").pop()?.toLowerCase() ?? "";
   if (IMAGE_EXTENSIONS.includes(extension)) return "image";
   if (extension === "pdf") return "pdf";
+  if (extension === "docx") return "docx";
   return "unsupported";
 }
 
@@ -105,6 +106,7 @@ export default function FileSidebar({
   const kind = previewKind(file.filename);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [docxHtml, setDocxHtml] = useState<string | null>(null);
 
   // Whether a download is in flight, used to disable the button so a slow
   // network can't kick off several fetches at once.
@@ -180,6 +182,7 @@ export default function FileSidebar({
   useEffect(() => {
     if (kind === "unsupported") return;
     let active = true;
+    setDocxHtml(null);
     getFileDownloadUrl(file.storageReference)
       .then((url) => {
         if (active) setPreviewUrl(url);
@@ -194,6 +197,26 @@ export default function FileSidebar({
       active = false;
     };
   }, [file.storageReference, kind]);
+
+  useEffect(() => {
+    if (kind !== "docx" || !previewUrl) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [response, mammoth, DOMPurify] = await Promise.all([
+          fetch(previewUrl),
+          import("mammoth"),
+          import("dompurify"),
+        ]);
+        const arrayBuffer = await response.arrayBuffer();
+        const { value: rawHtml } = await mammoth.convertToHtml({ arrayBuffer });
+        if (!cancelled) setDocxHtml(DOMPurify.default.sanitize(rawHtml));
+      } catch {
+        // previewError is already set by the URL-fetch effect if needed
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [kind, previewUrl]);
 
   // Subscribe to the file so the text another editor leaves behind shows up
   // here live. We only adopt the saved values into the form when we aren't
@@ -520,6 +543,15 @@ export default function FileSidebar({
               alt={file.filename}
               className="max-w-full rounded-md border border-black/[.08] dark:border-white/[.145]"
             />
+          ) : kind === "docx" ? (
+            !docxHtml ? (
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading preview…</p>
+            ) : (
+              <div
+                className="max-h-96 max-w-full overflow-y-auto rounded-md border border-black/[.08] p-3 text-sm leading-relaxed text-black dark:border-white/[.145] dark:text-zinc-50"
+                dangerouslySetInnerHTML={{ __html: docxHtml }}
+              />
+            )
           ) : (
             <iframe
               src={previewUrl}
