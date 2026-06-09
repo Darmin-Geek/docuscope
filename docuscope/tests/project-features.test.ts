@@ -305,4 +305,97 @@ test.describe("Information view", () => {
     );
     expect(duplicateKeyWarnings).toHaveLength(0);
   });
+
+  test("information entry fields can be filled and verified", async ({ page }) => {
+    await signUpAndOpenProject(page, `info-fill-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    // Open the file sidebar.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    // Open the information view.
+    await fileSidebar.getByRole("button", { name: "Open information view" }).click();
+    await expect(page.getByRole("heading", { name: "Information" })).toBeVisible();
+
+    // InformationSidebar renders before FileSidebar in the DOM; scope by heading.
+    const infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    // Create a new information entry.
+    await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
+    await expect(infoSidebar.locator("input[placeholder='Untitled']")).toBeVisible();
+
+    // Fill in all five fields.
+    await infoSidebar.locator("input[placeholder='Untitled']").fill("Climate Report 2024");
+    await infoSidebar.getByLabel("Information Text").fill("Temperatures have risen by 1.5°C.");
+    await infoSidebar.getByLabel("Overall Bias").fill("Slight alarmist bias.");
+    await infoSidebar.getByLabel("Information Reliability").fill("High — peer-reviewed sources.");
+    await infoSidebar.getByLabel("Information Credibility").fill("Credible scientific consensus.");
+
+    // Verify all fields contain the entered values.
+    await expect(infoSidebar.locator("input[placeholder='Untitled']")).toHaveValue("Climate Report 2024");
+    await expect(infoSidebar.getByLabel("Information Text")).toHaveValue("Temperatures have risen by 1.5°C.");
+    await expect(infoSidebar.getByLabel("Overall Bias")).toHaveValue("Slight alarmist bias.");
+    await expect(infoSidebar.getByLabel("Information Reliability")).toHaveValue("High — peer-reviewed sources.");
+    await expect(infoSidebar.getByLabel("Information Credibility")).toHaveValue("Credible scientific consensus.");
+  });
+
+  test("information entry can be filled and then deleted", async ({ page }) => {
+    await signUpAndOpenProject(page, `info-delete-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    // Open the file sidebar.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    // Open the information view.
+    await fileSidebar.getByRole("button", { name: "Open information view" }).click();
+    await expect(page.getByRole("heading", { name: "Information" })).toBeVisible();
+
+    const infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    // Create a new information entry.
+    await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
+    await expect(infoSidebar.locator("input[placeholder='Untitled']")).toBeVisible();
+
+    const infoTitle = "Test Source";
+
+    // Fill in all five fields.
+    await infoSidebar.locator("input[placeholder='Untitled']").fill(infoTitle);
+    await infoSidebar.getByLabel("Information Text").fill("Key findings from the source.");
+    await infoSidebar.getByLabel("Overall Bias").fill("Neutral.");
+    await infoSidebar.getByLabel("Information Reliability").fill("Medium reliability.");
+    await infoSidebar.getByLabel("Information Credibility").fill("Moderate credibility.");
+
+    // Verify all fields contain the entered values.
+    await expect(infoSidebar.locator("input[placeholder='Untitled']")).toHaveValue(infoTitle);
+    await expect(infoSidebar.getByLabel("Information Text")).toHaveValue("Key findings from the source.");
+    await expect(infoSidebar.getByLabel("Overall Bias")).toHaveValue("Neutral.");
+    await expect(infoSidebar.getByLabel("Information Reliability")).toHaveValue("Medium reliability.");
+    await expect(infoSidebar.getByLabel("Information Credibility")).toHaveValue("Moderate credibility.");
+
+    // Save by pressing Enter on the title; commits all field values to Firebase.
+    await infoSidebar.locator("input[placeholder='Untitled']").press("Enter");
+
+    // Wait for Firebase to echo the saved title back into the list.
+    await expect(
+      infoSidebar.getByRole("button", { name: infoTitle, exact: true })
+    ).toBeVisible();
+
+    // Click the delete button (✕) for this entry.
+    await infoSidebar.getByRole("button", { name: `Delete ${infoTitle}` }).click();
+
+    // Confirm deletion in the modal.
+    await expect(page.getByRole("heading", { name: "Delete information?" })).toBeVisible();
+    await page.getByRole("button", { name: "Yes, delete" }).click();
+
+    // The entry should be gone and the empty state should appear.
+    await expect(infoSidebar.getByText("No information yet.")).toBeVisible();
+  });
 });
