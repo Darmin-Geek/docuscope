@@ -119,11 +119,11 @@ export default function FileSidebar({
   const [labelError, setLabelError] = useState<string | null>(null);
 
   // The project's folders (for the "move to folder" picker) and the id of the
-  // folder this file currently lives in — null means the project root. The
-  // current folder is tracked locally so it stays accurate after a move without
-  // re-reading every folder's `subfiles`.
+  // folder this file currently lives in — null means the project root, undefined
+  // means the lookup hasn't resolved yet. Keeping these distinct prevents the
+  // no-op guard in handleMove from treating "unknown" as "already at root".
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null | undefined>(undefined);
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moveModalOpen, setMoveModalOpen] = useState(false);
@@ -221,7 +221,7 @@ export default function FileSidebar({
   }, [projectId, file.id]);
 
   async function handleMove(toFolderId: string | null) {
-    if (toFolderId === currentFolderId) return;
+    if (currentFolderId !== undefined && toFolderId === currentFolderId) return;
     setMoving(true);
     setMoveError(null);
     try {
@@ -617,7 +617,7 @@ export default function FileSidebar({
       <MoveFileModal
         filename={file.filename}
         folders={folders}
-        currentFolderId={currentFolderId}
+        currentFolderId={currentFolderId ?? null}
         onMove={handleMove}
         onClose={() => setMoveModalOpen(false)}
       />
