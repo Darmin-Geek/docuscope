@@ -108,14 +108,17 @@ export default function InformationSidebar({
 
   // Release the file lock if the panel unmounts while we still hold it (e.g. the
   // user closes the view mid-edit), so the file doesn't stay checked out.
+  const releaseRef = useRef(lock.release);
+  useEffect(() => {
+    releaseRef.current = lock.release;
+  });
   useEffect(() => {
     return () => {
       if (editingInfo.current) {
         editingInfo.current = false;
-        lock.release();
+        releaseRef.current();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load the selected entry's saved values into the form. Skipped while we are
@@ -284,11 +287,10 @@ export default function InformationSidebar({
               allItems.map((item) => (
                 <li key={item.id}>
                   <div
-                    className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${
-                      item.id === selectedId
+                    className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${item.id === selectedId
                         ? "bg-black/[.06] dark:bg-white/[.08]"
                         : "hover:bg-black/[.04] dark:hover:bg-white/[.06]"
-                    }`}
+                      }`}
                   >
                     <button
                       type="button"
