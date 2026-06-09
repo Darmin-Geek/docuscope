@@ -13,12 +13,10 @@ import {
   addLabelToFile,
   removeLabelFromFile,
   subscribeToFile,
-  checkOutFile,
-  checkInFile,
   type FileDoc,
   type Label,
 } from "@/lib/projects";
-import { getUserProfile } from "@/lib/users";
+import type { FileLock } from "./useFileLock";
 import LabelPill from "./LabelPill";
 
 type FileSidebarProps = {
@@ -27,9 +25,11 @@ type FileSidebarProps = {
   // Every label defined on the project, used to resolve the file's label ids
   // and to offer the ones not yet applied.
   labels: Label[];
-  // The signed-in user's uid, matched against the file's `checkedOutBy` lock so
-  // we can tell whether the current user or someone else is editing.
-  userId: string;
+  // The file's shared check-out lock, coordinated with the information sidebar
+  // so editing either side checks the whole file out (see useFileLock).
+  lock: FileLock;
+  // Opens the information sidebar to the left of this one.
+  onOpenInformation: () => void;
   onClose: () => void;
   // Called after a successful save so the parent can refresh its file list.
   onSaved: (updated: FileDoc) => void;
@@ -73,7 +73,8 @@ export default function FileSidebar({
   projectId,
   file,
   labels,
-  userId,
+  lock,
+  onOpenInformation,
   onClose,
   onSaved,
   onLabelsChanged,
@@ -89,24 +90,13 @@ export default function FileSidebar({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The uid currently holding the file (see docs/dataModel.md), kept live via a
-  // Firestore subscription so a lock taken/released by another user shows up
-  // here without a refresh. `editorName` is that user's resolved display name.
-  const [checkedOutBy, setCheckedOutBy] = useState<string | null>(
-    file.checkedOutBy,
-  );
-  // The resolved profile of whoever holds the lock, kept keyed by uid so a name
-  // fetched for a previous holder is never shown for the current one.
-  const [editor, setEditor] = useState<{ uid: string; name: string | null } | null>(
-    null,
-  );
-  const lockedByOther = checkedOutBy != null && checkedOutBy !== userId;
-  const editorName = editor?.uid === checkedOutBy ? editor.name : null;
+  // The shared lock state (who, if anyone else, currently holds the file).
+  const { lockedByOther, editorName } = lock;
 
-  // Whether *we* hold the lock right now (between focusing a field and focus
-  // leaving the field group). A ref so the live subscription can avoid
-  // overwriting our in-progress edits without needing to re-subscribe.
-  const holdingLock = useRef(false);
+  // Whether *we* are currently editing these file-detail fields (between
+  // focusing a field and focus leaving the group). A ref so the live
+  // subscription can avoid overwriting our in-progress edits.
+  const editingFields = useRef(false);
 
   // Whether the "add label" picker (the unassigned labels) is showing.
   const [pickingLabel, setPickingLabel] = useState(false);
@@ -205,15 +195,13 @@ export default function FileSidebar({
     };
   }, [file.storageReference, kind]);
 
-  // Subscribe to the file so another user taking or releasing the lock — and
-  // the text they leave behind — shows up here live. We only adopt the saved
-  // values into the form when we aren't mid-edit ourselves, so this both
-  // mirrors another editor's changes and refreshes the fields the moment they
-  // release the lock (letting us edit the up-to-date text).
+  // Subscribe to the file so the text another editor leaves behind shows up
+  // here live. We only adopt the saved values into the form when we aren't
+  // mid-edit ourselves, so this both mirrors another editor's changes and
+  // refreshes the fields the moment they release the lock.
   useEffect(() => {
     const unsubscribe = subscribeToFile(projectId, file.id, (live) => {
-      setCheckedOutBy(live.checkedOutBy);
-      if (!holdingLock.current) {
+      if (!editingFields.current) {
         setAuthor(live.author ?? "");
         setDateValue(timestampToDateInput(live.createdDate));
         setOverallBias(live.overallBias ?? "");
@@ -225,60 +213,35 @@ export default function FileSidebar({
     return unsubscribe;
   }, [projectId, file.id]);
 
-  // Resolve the other editor's uid to a display name for the banner. The banner
-  // is only shown while `lockedByOther`, and falls back to "Another user" until
-  // (or unless) this resolves.
+  // If another user grabs the lock (e.g. we lost a claim race), stop guarding
+  // the fields so the incoming snapshot can replace whatever we had typed.
   useEffect(() => {
-    if (!lockedByOther || checkedOutBy == null) return;
-    let active = true;
-    const holder = checkedOutBy;
-    getUserProfile(holder)
-      .then((profile) => {
-        if (active) setEditor({ uid: holder, name: profile?.name.trim() || null });
-      })
-      .catch(() => {
-        // Fall back to the generic "Another user" label if the name won't load.
-      });
-    return () => {
-      active = false;
-    };
-  }, [lockedByOther, checkedOutBy]);
-
-  // Release the lock if the sidebar unmounts (file switched or closed) while we
-  // still hold it, so the file never stays stuck checked out to us.
-  useEffect(() => {
-    return () => {
-      if (holdingLock.current) {
-        holdingLock.current = false;
-        void checkInFile(projectId, file.id);
-      }
-    };
-  }, [projectId, file.id]);
+    if (lockedByOther) editingFields.current = false;
+  }, [lockedByOther]);
 
   // Claim the lock the first time the user focuses a field. Skipped when
   // someone else holds it (their fields are disabled, so this can't fire) or
-  // when we already hold it. The claim is transactional: if another user wins
-  // the race we drop our optimistic hold, and the incoming snapshot disables
-  // the fields and discards whatever was typed in the meantime.
+  // when we are already editing.
   function claimLock() {
-    if (holdingLock.current || lockedByOther) return;
-    holdingLock.current = true;
-    checkOutFile(projectId, file.id, userId)
-      .then((claimed) => {
-        if (!claimed) holdingLock.current = false;
-      })
-      .catch(() => {
-        holdingLock.current = false;
-      });
+    if (editingFields.current || lockedByOther) return;
+    editingFields.current = true;
+    lock.acquire();
+  }
+
+  // The "open information view" button sits inside the field group for layout
+  // only; focusing or clicking it must not check the file out.
+  function handleGroupFocus(event: FocusEvent<HTMLDivElement>) {
+    if ((event.target as HTMLElement).dataset.noLock != null) return;
+    claimLock();
   }
 
   // Release the lock once focus leaves the whole field group. `handleGroupBlur`
   // first saves the edit, so the latest text is in Firestore before the lock
   // frees and other users' screens update.
   function releaseLock() {
-    if (!holdingLock.current) return;
-    holdingLock.current = false;
-    void checkInFile(projectId, file.id);
+    if (!editingFields.current) return;
+    editingFields.current = false;
+    lock.release();
   }
 
   function handleGroupBlur(event: FocusEvent<HTMLDivElement>) {
@@ -435,7 +398,7 @@ export default function FileSidebar({
             them checks the file out to this user, and focus leaving the whole
             group saves and checks it back in. While another user holds the lock
             every field is disabled and greyed out. */}
-        <div className="contents" onFocus={claimLock} onBlur={handleGroupBlur}>
+        <div className="contents" onFocus={handleGroupFocus} onBlur={handleGroupBlur}>
           <label className="flex items-center gap-2">
             <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
               Author
@@ -464,6 +427,15 @@ export default function FileSidebar({
               className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
             />
           </label>
+
+          <button
+            type="button"
+            data-no-lock="true"
+            onClick={onOpenInformation}
+            className="flex h-9 items-center justify-center rounded-md bg-black text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+          >
+            Open information view
+          </button>
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
