@@ -274,6 +274,170 @@ test.describe("Filtering", () => {
   });
 });
 
+// ── Move File ─────────────────────────────────────────────────────────────────
+
+test.describe("Move file", () => {
+  test("move button opens the modal showing Project root as a destination", async ({ page }) => {
+    await signUpAndOpenProject(page, `move-open-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    await fileSidebar.getByRole("button", { name: "Move file to folder" }).click();
+
+    await expect(page.getByRole("heading", { name: "Move File" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Project root" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Confirm" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+  });
+
+  test("when a project has no folders, only Project root is shown in the modal", async ({ page }) => {
+    await signUpAndOpenProject(page, `move-no-folders-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    await fileSidebar.getByRole("button", { name: "Move file to folder" }).click();
+
+    await expect(page.getByRole("heading", { name: "Move File" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Project root" })).toBeVisible();
+    // FolderTree is not rendered when there are no folders; no expand buttons exist.
+    await expect(page.getByRole("button", { name: "Expand subfolders" })).toHaveCount(0);
+  });
+
+  test("confirming moves a root-level file into the selected folder", async ({ page }) => {
+    await signUpAndOpenProject(page, `move-to-folder-${Date.now()}@test.com`);
+
+    const folderName = `Archives ${Date.now()}`;
+    await createFolder(page, folderName);
+
+    // Upload at the project root (Escape deselects the newly-created folder).
+    await page.keyboard.press("Escape");
+    await uploadFile(page, SVG.globe);
+
+    // Verify the file is not yet in the folder.
+    await page.getByRole("button", { name: folderName }).click();
+    await expect(page.locator("td").filter({ hasText: "globe.svg" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    // Open the file sidebar from the all-files view.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    // Open the move modal and wait for folders to load in the tree.
+    await fileSidebar.getByRole("button", { name: "Move file to folder" }).click();
+    await expect(page.getByRole("heading", { name: "Move File" })).toBeVisible();
+
+    // The folder name appears in both the left sidebar and the modal tree; nth(1) is
+    // the modal's button (the modal renders after the sidebar in the DOM).
+    await expect(page.getByRole("button", { name: folderName }).nth(1)).toBeVisible();
+    await page.getByRole("button", { name: folderName }).nth(1).click();
+    await page.getByRole("button", { name: "Confirm" }).click();
+
+    // Modal closes after the move.
+    await expect(page.getByRole("heading", { name: "Move File" })).not.toBeVisible();
+
+    // Close the sidebar, then select the folder to confirm the file is now there.
+    await fileSidebar.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("button", { name: folderName }).click();
+    await expect(page.getByRole("cell", { name: "globe.svg" })).toBeVisible();
+  });
+
+  test("confirming with Project root removes the file from its folder", async ({ page }) => {
+    await signUpAndOpenProject(page, `move-to-root-${Date.now()}@test.com`);
+
+    const folderName = `Media ${Date.now()}`;
+    await createFolder(page, folderName);
+    await page.getByRole("button", { name: folderName }).click();
+    await uploadFile(page, SVG.globe);
+
+    // File is in the folder.
+    await expect(page.getByRole("cell", { name: "globe.svg" })).toBeVisible();
+
+    // Open the file sidebar and move to project root.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    await fileSidebar.getByRole("button", { name: "Move file to folder" }).click();
+    await expect(page.getByRole("heading", { name: "Move File" })).toBeVisible();
+
+    // The folder is pre-selected; click Project root to change the destination to root.
+    await page.getByRole("button", { name: "Project root" }).click();
+    await page.getByRole("button", { name: "Confirm" }).click();
+
+    await expect(page.getByRole("heading", { name: "Move File" })).not.toBeVisible();
+
+    // Close the sidebar; the folder is still selected so the file should be gone.
+    await fileSidebar.getByRole("button", { name: "Close" }).click();
+    await expect(page.locator("td").filter({ hasText: "globe.svg" })).toHaveCount(0);
+
+    // Deselect the folder; the file should appear in the all-files view.
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("cell", { name: "globe.svg" })).toBeVisible();
+  });
+
+  test("cancelling the modal leaves the file in its current folder", async ({ page }) => {
+    await signUpAndOpenProject(page, `move-cancel-${Date.now()}@test.com`);
+
+    const folderName = `Reports ${Date.now()}`;
+    await createFolder(page, folderName);
+    await page.getByRole("button", { name: folderName }).click();
+    await uploadFile(page, SVG.globe);
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    // Open the modal, change the selection to Project root, then cancel.
+    await fileSidebar.getByRole("button", { name: "Move file to folder" }).click();
+    await expect(page.getByRole("heading", { name: "Move File" })).toBeVisible();
+    await page.getByRole("button", { name: "Project root" }).click();
+    await page.getByRole("button", { name: "Cancel" }).click();
+
+    // Modal is closed; the file should still be in the folder.
+    await expect(page.getByRole("heading", { name: "Move File" })).not.toBeVisible();
+    await fileSidebar.getByRole("button", { name: "Close" }).click();
+    await expect(page.getByRole("cell", { name: "globe.svg" })).toBeVisible();
+  });
+
+  test("modal pre-selects the file's current folder so confirming without changing is a no-op", async ({ page }) => {
+    await signUpAndOpenProject(page, `move-preselect-${Date.now()}@test.com`);
+
+    const folderName = `Docs ${Date.now()}`;
+    await createFolder(page, folderName);
+    await page.getByRole("button", { name: folderName }).click();
+    await uploadFile(page, SVG.globe);
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    await fileSidebar.getByRole("button", { name: "Move file to folder" }).click();
+    await expect(page.getByRole("heading", { name: "Move File" })).toBeVisible();
+
+    // Wait for the folders to load in the modal (ensures currentFolderId was resolved
+    // before the modal mounted and was used as the initial selectedId).
+    await expect(page.getByRole("button", { name: folderName }).nth(1)).toBeVisible();
+
+    // Confirm without changing the selection — the folder is pre-selected, so this is
+    // a no-op and the file should remain in the same folder.
+    await page.getByRole("button", { name: "Confirm" }).click();
+    await expect(page.getByRole("heading", { name: "Move File" })).not.toBeVisible();
+
+    // Close the sidebar, deselect the folder, then re-select to confirm the file is still there.
+    await fileSidebar.getByRole("button", { name: "Close" }).click();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: folderName }).click();
+    await expect(page.getByRole("cell", { name: "globe.svg" })).toBeVisible();
+  });
+});
+
 // ── Information view ──────────────────────────────────────────────────────────
 
 test.describe("Information view", () => {
