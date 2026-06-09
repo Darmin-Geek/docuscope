@@ -11,6 +11,7 @@ import {
   where,
   onSnapshot,
   runTransaction,
+  writeBatch,
   arrayUnion,
   arrayRemove,
   type QueryDocumentSnapshot,
@@ -117,13 +118,29 @@ export type Information = {
   overallBias: string | null;
   informationReliability: string | null;
   informationCredibility: string | null;
+  /** Firestore paths of information docs this entry corroborates. */
+  corroboratesWithPaths: string[];
+  /** Firestore paths of information docs this entry conflicts with. */
+  conflictsWithPaths: string[];
 };
 
-/** The writable fields of an information document (everything but its id). */
-export type InformationFields = Omit<Information, "id">;
+/** The writable fields of an information document (text/assessment fields only). */
+export type InformationFields = Omit<Information, "id" | "corroboratesWithPaths" | "conflictsWithPaths">;
+
+/** A resolved relationship entry for display in the sidebar. */
+export type InformationRelation = {
+  /** Raw Firestore path — used for removal. */
+  informationPath: string;
+  informationId: string;
+  fileId: string;
+  filename: string;
+  informationTitle: string;
+};
 
 function informationFromSnapshot(snapshot: DocumentSnapshot): Information {
   const data = snapshot.data() ?? {};
+  const corroboratesWith = (data.corroboratesWith as DocumentReference[] | undefined) ?? [];
+  const conflictsWith = (data.conflictsWith as DocumentReference[] | undefined) ?? [];
   return {
     id: snapshot.id,
     informationTitle: (data.informationTitle as string) ?? "",
@@ -133,6 +150,8 @@ function informationFromSnapshot(snapshot: DocumentSnapshot): Information {
       (data.informationReliability as string | null) ?? null,
     informationCredibility:
       (data.informationCredibility as string | null) ?? null,
+    corroboratesWithPaths: corroboratesWith.map((ref) => ref.path),
+    conflictsWithPaths: conflictsWith.map((ref) => ref.path),
   };
 }
 
@@ -630,4 +649,129 @@ export async function removeLabelFromFile(
   await updateDoc(doc(db, "projects", projectId, "files", fileId), {
     labels: arrayRemove(labelRef),
   });
+}
+
+/** One-time fetch of all information entries for a file. */
+export async function getInformationList(
+  projectId: string,
+  fileId: string,
+): Promise<Information[]> {
+  const snapshot = await getDocs(
+    collection(db, "projects", projectId, "files", fileId, "information"),
+  );
+  return snapshot.docs.map(informationFromSnapshot);
+}
+
+/**
+ * Resolve a list of raw Firestore paths to display-ready `InformationRelation`
+ * objects. Paths that no longer exist in Firestore are silently skipped.
+ */
+export async function resolveInformationRelations(
+  paths: string[],
+): Promise<InformationRelation[]> {
+  const results = await Promise.all(
+    paths.map(async (path): Promise<InformationRelation | null> => {
+      try {
+        const infoSnap = await getDoc(doc(db, path));
+        if (!infoSnap.exists()) return null;
+        // path: projects/{projectId}/files/{fileId}/information/{infoId}
+        const segments = path.split("/");
+        const fileId = segments[3];
+        const fileSnap = await getDoc(
+          doc(db, "projects", segments[1], "files", fileId),
+        );
+        if (!fileSnap.exists()) return null;
+        return {
+          informationPath: path,
+          informationId: infoSnap.id,
+          fileId,
+          filename: (fileSnap.data()?.filename as string) ?? "",
+          informationTitle:
+            (infoSnap.data()?.informationTitle as string) ?? "",
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return results.filter((r): r is InformationRelation => r !== null);
+}
+
+/**
+ * Atomically add a corroborates-with or conflicts-with relationship between
+ * two information entries. The link is symmetrical: both documents are updated
+ * in a single batch so they always stay in sync.
+ */
+export async function addInformationRelationship(
+  projectId: string,
+  sourceFileId: string,
+  sourceInfoId: string,
+  targetFileId: string,
+  targetInfoId: string,
+  type: "corroborates" | "conflicts",
+): Promise<void> {
+  const field = type === "corroborates" ? "corroboratesWith" : "conflictsWith";
+  const sourceRef = doc(
+    db,
+    "projects",
+    projectId,
+    "files",
+    sourceFileId,
+    "information",
+    sourceInfoId,
+  );
+  const targetRef = doc(
+    db,
+    "projects",
+    projectId,
+    "files",
+    targetFileId,
+    "information",
+    targetInfoId,
+  );
+  const batch = writeBatch(db);
+  batch.update(sourceRef, { [field]: arrayUnion(targetRef) });
+  batch.update(targetRef, { [field]: arrayUnion(sourceRef) });
+  await batch.commit();
+}
+
+/**
+ * Atomically remove a corroborates-with or conflicts-with relationship.
+ * `targetPath` is the raw Firestore path stored on the source entry. Both
+ * documents are updated in a single batch.
+ */
+export async function removeInformationRelationship(
+  projectId: string,
+  sourceFileId: string,
+  sourceInfoId: string,
+  targetPath: string,
+  type: "corroborates" | "conflicts",
+): Promise<void> {
+  const field = type === "corroborates" ? "corroboratesWith" : "conflictsWith";
+  // targetPath: projects/{projectId}/files/{fileId}/information/{infoId}
+  const segments = targetPath.split("/");
+  const targetFileId = segments[3];
+  const targetInfoId = segments[5];
+  const sourceRef = doc(
+    db,
+    "projects",
+    projectId,
+    "files",
+    sourceFileId,
+    "information",
+    sourceInfoId,
+  );
+  const targetRef = doc(
+    db,
+    "projects",
+    segments[1],
+    "files",
+    targetFileId,
+    "information",
+    targetInfoId,
+  );
+  const batch = writeBatch(db);
+  batch.update(sourceRef, { [field]: arrayRemove(targetRef) });
+  batch.update(targetRef, { [field]: arrayRemove(sourceRef) });
+  await batch.commit();
 }
