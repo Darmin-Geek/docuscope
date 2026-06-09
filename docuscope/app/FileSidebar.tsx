@@ -33,6 +33,11 @@ type FileSidebarProps = {
   onClose: () => void;
   // Called after a successful save so the parent can refresh its file list.
   onSaved: (updated: FileDoc) => void;
+  // Called after a label is added to / removed from this file. Unlike onSaved,
+  // this hands back a mutator so the parent can apply the change against the
+  // freshest file state: adding two labels in quick succession must not lose the
+  // first one to a stale `file` snapshot captured in this component's closure.
+  onLabelsChanged: (fileId: string, nextLabels: (current: string[]) => string[]) => void;
 };
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
@@ -71,6 +76,7 @@ export default function FileSidebar({
   userId,
   onClose,
   onSaved,
+  onLabelsChanged,
 }: FileSidebarProps) {
   const [author, setAuthor] = useState(file.author ?? "");
   const [dateValue, setDateValue] = useState(
@@ -156,7 +162,9 @@ export default function FileSidebar({
     setPickingLabel(false);
     try {
       await addLabelToFile(projectId, file.id, labelId);
-      onSaved({ ...file, labels: [...file.labels, labelId] });
+      onLabelsChanged(file.id, (current) =>
+        current.includes(labelId) ? current : [...current, labelId],
+      );
     } catch (err: unknown) {
       setLabelError(err instanceof Error ? err.message : "Failed to add label.");
     }
@@ -166,10 +174,9 @@ export default function FileSidebar({
     setLabelError(null);
     try {
       await removeLabelFromFile(projectId, file.id, labelId);
-      onSaved({
-        ...file,
-        labels: file.labels.filter((id) => id !== labelId),
-      });
+      onLabelsChanged(file.id, (current) =>
+        current.filter((id) => id !== labelId),
+      );
     } catch (err: unknown) {
       setLabelError(
         err instanceof Error ? err.message : "Failed to remove label.",
