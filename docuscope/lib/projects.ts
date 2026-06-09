@@ -7,6 +7,7 @@ import {
   getDocs,
   updateDoc,
   deleteDoc,
+  deleteField,
   query,
   where,
   onSnapshot,
@@ -47,6 +48,13 @@ export type Label = {
   color: string;
 };
 
+/** A user-defined custom field definition on a project (see docs/dataModel.md). */
+export type CustomFieldDef = {
+  id: string;
+  name: string;
+  target: "file" | "information";
+};
+
 /**
  * The labels every new project starts with. Order is meaningful: it mirrors a
  * file's typical lifecycle from untouched to resolved.
@@ -83,6 +91,8 @@ export type FileDoc = {
   checkedOutBy: string | null;
   /** Ids of the labels applied to this file (see docs/dataModel.md). */
   labels: string[];
+  /** Values for user-defined custom fields, keyed by CustomFieldDef id. */
+  customData: Record<string, string>;
 };
 
 function fileFromSnapshot(snapshot: DocumentSnapshot): FileDoc {
@@ -101,6 +111,7 @@ function fileFromSnapshot(snapshot: DocumentSnapshot): FileDoc {
     fileCredibility: (data.fileCredibility as string | null) ?? null,
     checkedOutBy: (data.checkedOutBy as string | null) ?? null,
     labels: labelRefs.map((ref) => ref.id),
+    customData: (data.customData as Record<string, string>) ?? {},
   };
 }
 
@@ -117,6 +128,8 @@ export type Information = {
   overallBias: string | null;
   informationReliability: string | null;
   informationCredibility: string | null;
+  /** Values for user-defined custom fields, keyed by CustomFieldDef id. */
+  customData: Record<string, string>;
 };
 
 /** The writable fields of an information document (everything but its id). */
@@ -133,6 +146,7 @@ function informationFromSnapshot(snapshot: DocumentSnapshot): Information {
       (data.informationReliability as string | null) ?? null,
     informationCredibility:
       (data.informationCredibility as string | null) ?? null,
+    customData: (data.customData as Record<string, string>) ?? {},
   };
 }
 
@@ -372,7 +386,7 @@ export async function uploadFile(
     });
   }
 
-  return { id: fileRef.id, ...fileData, labels: [] };
+  return { id: fileRef.id, ...fileData, labels: [], customData: {} };
 }
 
 /**
@@ -391,6 +405,7 @@ export async function updateFileMetadata(
     source: string | null;
     fileReliability: string | null;
     fileCredibility: string | null;
+    customData: Record<string, string>;
   },
 ): Promise<void> {
   await updateDoc(doc(db, "projects", projectId, "files", fileId), {
@@ -400,6 +415,7 @@ export async function updateFileMetadata(
     source: metadata.source,
     fileReliability: metadata.fileReliability,
     fileCredibility: metadata.fileCredibility,
+    customData: metadata.customData,
   });
 }
 
@@ -630,4 +646,94 @@ export async function removeLabelFromFile(
   await updateDoc(doc(db, "projects", projectId, "files", fileId), {
     labels: arrayRemove(labelRef),
   });
+}
+
+function customFieldDefFromSnapshot(snapshot: DocumentSnapshot): CustomFieldDef {
+  const data = snapshot.data() ?? {};
+  return {
+    id: snapshot.id,
+    name: (data.name as string) ?? "",
+    target: (data.target as "file" | "information") ?? "file",
+  };
+}
+
+/** List every custom field definition on a project. */
+export async function getCustomFieldDefs(projectId: string): Promise<CustomFieldDef[]> {
+  const snapshot = await getDocs(
+    collection(db, "projects", projectId, "customFieldDefs"),
+  );
+  return snapshot.docs.map(customFieldDefFromSnapshot);
+}
+
+/** Create a custom field definition. Returns the new def. */
+export async function createCustomFieldDef(
+  projectId: string,
+  name: string,
+  target: "file" | "information",
+): Promise<CustomFieldDef> {
+  const trimmed = name.trim();
+  const docRef = await addDoc(
+    collection(db, "projects", projectId, "customFieldDefs"),
+    { name: trimmed, target },
+  );
+  return { id: docRef.id, name: trimmed, target };
+}
+
+/** Rename a custom field definition. */
+export async function updateCustomFieldDef(
+  projectId: string,
+  defId: string,
+  name: string,
+): Promise<void> {
+  await updateDoc(
+    doc(db, "projects", projectId, "customFieldDefs", defId),
+    { name: name.trim() },
+  );
+}
+
+/**
+ * Delete a custom field definition and remove its key from every file or
+ * information document that carries it (mirrors deleteLabel).
+ */
+export async function deleteCustomFieldDef(
+  projectId: string,
+  defId: string,
+  target: "file" | "information",
+): Promise<void> {
+  const filesSnapshot = await getDocs(
+    collection(db, "projects", projectId, "files"),
+  );
+
+  if (target === "file") {
+    await Promise.all(
+      filesSnapshot.docs
+        .filter((fileDoc) => {
+          const cd = (fileDoc.data().customData as Record<string, string> | undefined) ?? {};
+          return defId in cd;
+        })
+        .map((fileDoc) =>
+          updateDoc(fileDoc.ref, { [`customData.${defId}`]: deleteField() }),
+        ),
+    );
+  } else {
+    await Promise.all(
+      filesSnapshot.docs.map(async (fileDoc) => {
+        const infoSnapshot = await getDocs(
+          collection(db, "projects", projectId, "files", fileDoc.id, "information"),
+        );
+        await Promise.all(
+          infoSnapshot.docs
+            .filter((infoDoc) => {
+              const cd = (infoDoc.data().customData as Record<string, string> | undefined) ?? {};
+              return defId in cd;
+            })
+            .map((infoDoc) =>
+              updateDoc(infoDoc.ref, { [`customData.${defId}`]: deleteField() }),
+            ),
+        );
+      }),
+    );
+  }
+
+  await deleteDoc(doc(db, "projects", projectId, "customFieldDefs", defId));
 }

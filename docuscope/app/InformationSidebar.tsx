@@ -14,6 +14,7 @@ import {
   newInformationId,
   subscribeToInformation,
   updateInformation,
+  type CustomFieldDef,
   type FileDoc,
   type Information,
 } from "@/lib/projects";
@@ -27,6 +28,7 @@ type InformationSidebarProps = {
   // file out, which blocks other contributors from the file details too, and a
   // detail edit elsewhere likewise greys these fields out (see useFileLock).
   lock: FileLock;
+  infoCustomFieldDefs: CustomFieldDef[];
   onClose: () => void;
 };
 
@@ -41,6 +43,7 @@ export default function InformationSidebar({
   projectId,
   file,
   lock,
+  infoCustomFieldDefs,
   onClose,
 }: InformationSidebarProps) {
   const { lockedByOther, editorName } = lock;
@@ -82,6 +85,8 @@ export default function InformationSidebar({
   const [bias, setBias] = useState("");
   const [reliability, setReliability] = useState("");
   const [credibility, setCredibility] = useState("");
+
+  const [customData, setCustomData] = useState<Record<string, string>>({});
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +137,7 @@ export default function InformationSidebar({
     setBias(selectedItem.overallBias ?? "");
     setReliability(selectedItem.informationReliability ?? "");
     setCredibility(selectedItem.informationCredibility ?? "");
+    setCustomData(selectedItem.customData ?? {});
   }, [selectedItem]);
 
   // If another user grabs the lock, stop guarding the fields so the live values
@@ -158,15 +164,18 @@ export default function InformationSidebar({
       overallBias: null,
       informationReliability: null,
       informationCredibility: null,
+      customData: {},
     };
     setPending((prev) => [...prev, draft]);
     setSelectedId(id);
+    setCustomData({});
     void addInformation(projectId, file.id, {
       informationTitle: draft.informationTitle,
       informationText: draft.informationText,
       overallBias: draft.overallBias,
       informationReliability: draft.informationReliability,
       informationCredibility: draft.informationCredibility,
+      customData: draft.customData,
     }, id).catch((err: unknown) => {
       setError(
         err instanceof Error ? err.message : "Failed to add information.",
@@ -214,6 +223,7 @@ export default function InformationSidebar({
       overallBias: trimmedOrNull(bias),
       informationReliability: trimmedOrNull(reliability),
       informationCredibility: trimmedOrNull(credibility),
+      customData,
     };
 
     setSaving(true);
@@ -400,6 +410,26 @@ export default function InformationSidebar({
                   className={fieldClass}
                 />
               </label>
+
+              {infoCustomFieldDefs.map((def) => (
+                <label key={def.id} className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-black dark:text-zinc-50">
+                    {def.name}
+                  </span>
+                  <textarea
+                    value={customData[def.id] ?? ""}
+                    onChange={(event) =>
+                      setCustomData((prev) => ({
+                        ...prev,
+                        [def.id]: event.target.value,
+                      }))
+                    }
+                    disabled={lockedByOther}
+                    rows={3}
+                    className={fieldClass}
+                  />
+                </label>
+              ))}
             </div>
 
             {saving && (
