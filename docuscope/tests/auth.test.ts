@@ -1,49 +1,45 @@
 import { test, expect } from "@playwright/test";
-import { createEmulatorUser } from "./helpers";
+import { injectOidcUser } from "./helpers";
+
+// Authentication is handled by Cognito's hosted UI (OIDC redirect flow), so
+// we can't test the sign-up/login form directly. Instead we inject a pre-built
+// OIDC user into localStorage — the same technique tests use to set up auth
+// state for any test that needs a signed-in user.
 
 test.describe("Authentication", () => {
-  test("sign up brings user to projects list", async ({ page }) => {
-    const email = `signup-${Date.now()}@test.com`;
+  test("authenticated user is shown the projects list", async ({ page }) => {
+    const uid = `uid-auth-${Date.now()}`;
+    const email = `auth-${Date.now()}@test.com`;
 
-    await page.goto("/");
+    await injectOidcUser(page, uid, email);
 
-    // Open the sign-up modal
-    await page.getByRole("button", { name: "Sign Up" }).click();
-
-    // Fill in credentials and submit
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill("testpass123");
-    await page.locator("button[type='submit']").click();
-
-    // A newly created account has no projects; the heading confirms we're on
-    // the projects list page
     await expect(
       page.getByRole("heading", { name: "Your Projects" })
     ).toBeVisible();
   });
 
-  test("log in with existing account brings user to projects list", async ({
+  test("unauthenticated user is shown Sign Up and Log In buttons", async ({
     page,
   }) => {
-    const email = `login-${Date.now()}@test.com`;
-    const password = "testpass123";
-
-    // Seed the account directly via the emulator so the login test doesn't
-    // depend on the sign-up flow working correctly
-    await createEmulatorUser(email, password);
-
     await page.goto("/");
 
-    // Open the log-in modal
-    await page.getByRole("button", { name: "Log In" }).click();
+    await expect(page.getByRole("button", { name: "Sign Up" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Log In" })).toBeVisible();
+  });
 
-    // Fill in credentials and submit
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.locator("button[type='submit']").click();
+  test("Log Out clears the session and returns to the sign-in screen", async ({
+    page,
+  }) => {
+    const uid = `uid-logout-${Date.now()}`;
+    const email = `logout-${Date.now()}@test.com`;
+    await injectOidcUser(page, uid, email);
 
     await expect(
       page.getByRole("heading", { name: "Your Projects" })
     ).toBeVisible();
+
+    await page.getByRole("button", { name: "Log Out" }).click();
+
+    await expect(page.getByRole("button", { name: "Sign Up" })).toBeVisible();
   });
 });

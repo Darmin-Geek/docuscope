@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import path from "path";
+import { injectOidcUser } from "./helpers";
 
 // SVG files used as uploads in these tests (vercel.svg excluded).
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -12,13 +13,10 @@ const SVG = {
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
-/** Signs up a fresh account, creates one project, and opens it. */
+/** Signs in a fresh user, creates one project, and opens it. */
 async function signUpAndOpenProject(page: Page, email: string): Promise<void> {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Sign Up" }).click();
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill("testpass123");
-  await page.locator("button[type='submit']").click();
+  const uid = `uid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await injectOidcUser(page, uid, email);
   await expect(
     page.getByRole("heading", { name: "Your Projects" })
   ).toBeVisible();

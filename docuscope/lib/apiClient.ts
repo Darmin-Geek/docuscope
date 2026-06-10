@@ -1,8 +1,9 @@
-import { fetchAuthSession } from 'aws-amplify/auth';
+import { getUserManager } from './oidc';
 
 async function getToken(): Promise<string> {
-  const session = await fetchAuthSession();
-  const token = session.tokens?.idToken?.toString();
+  const user = await getUserManager().getUser();
+  // id_token is the JWT verifyAuth.ts checks; access_token is for resource servers.
+  const token = user?.expired === false ? user.id_token : null;
   if (!token) throw new Error('Not authenticated');
   return token;
 }
