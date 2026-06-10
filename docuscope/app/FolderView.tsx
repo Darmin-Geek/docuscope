@@ -8,6 +8,7 @@ import {
   type Label,
 } from "@/lib/projects";
 import CreateFolderModal from "./CreateFolderModal";
+import FolderTree from "./FolderTree";
 import LabelPill from "./LabelPill";
 
 type FolderViewProps = {
@@ -39,8 +40,6 @@ export default function FolderView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Folders whose direct subfolders are currently revealed.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,35 +94,6 @@ export default function FolderView({
     });
   }, [labels]);
 
-  // Group folders by their parent so the tree can be rendered recursively.
-  const childrenByParent = useMemo(() => {
-    const map = new Map<string | null, Folder[]>();
-    for (const folder of folders) {
-      const siblings = map.get(folder.parentId) ?? [];
-      siblings.push(folder);
-      map.set(folder.parentId, siblings);
-    }
-    for (const siblings of map.values()) {
-      siblings.sort((a, b) => a.folderName.localeCompare(b.folderName));
-    }
-    return map;
-  }, [folders]);
-
-  // Clicking a folder both selects it and toggles whether its direct
-  // subfolders are shown.
-  function handleFolderClick(folderId: string) {
-    onSelectChange(folderId);
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(folderId)) {
-        next.delete(folderId);
-      } else {
-        next.add(folderId);
-      }
-      return next;
-    });
-  }
-
   async function handleCreate(name: string) {
     const parentId = selectedId;
     const folder = await createFolder(projectId, name, parentId);
@@ -135,10 +105,6 @@ export default function FolderView({
         ? prev
         : [...prev, folder],
     );
-    // Reveal the new folder by expanding its parent (if any).
-    if (parentId) {
-      setExpanded((prev) => new Set(prev).add(parentId));
-    }
   }
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -155,35 +121,6 @@ export default function FolderView({
   }
 
   const selectedFolder = folders.find((f) => f.id === selectedId) ?? null;
-
-  function renderFolders(parentId: string | null, depth: number) {
-    const children = childrenByParent.get(parentId) ?? [];
-    return children.map((folder) => {
-      const hasChildren = (childrenByParent.get(folder.id) ?? []).length > 0;
-      const isExpanded = expanded.has(folder.id);
-      const isSelected = folder.id === selectedId;
-      return (
-        <div key={folder.id}>
-          <button
-            type="button"
-            onClick={() => handleFolderClick(folder.id)}
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
-            className={`flex w-full items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-sm transition-colors ${
-              isSelected
-                ? "bg-black/[.06] font-medium text-black dark:bg-white/[.1] dark:text-zinc-50"
-                : "text-zinc-700 hover:bg-black/[.04] dark:text-zinc-300 dark:hover:bg-white/[.06]"
-            }`}
-          >
-            <span className="w-3 shrink-0 text-zinc-400">
-              {hasChildren ? (isExpanded ? "▾" : "▸") : ""}
-            </span>
-            <span className="truncate">{folder.folderName || "Untitled"}</span>
-          </button>
-          {isExpanded && renderFolders(folder.id, depth + 1)}
-        </div>
-      );
-    });
-  }
 
   return (
     <aside className="flex w-1/4 min-w-56 flex-col border-r border-black/[.08] dark:border-white/[.145]">
@@ -225,7 +162,11 @@ export default function FolderView({
             No folders yet.
           </p>
         ) : (
-          renderFolders(null, 0)
+          <FolderTree
+            folders={folders}
+            selectedId={selectedId}
+            onFolderClick={onSelectChange}
+          />
         )}
       </div>
 

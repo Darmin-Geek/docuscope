@@ -11,6 +11,7 @@ import {
   where,
   onSnapshot,
   runTransaction,
+  writeBatch,
   arrayUnion,
   arrayRemove,
   type QueryDocumentSnapshot,
@@ -303,6 +304,62 @@ export async function createFolder(
   }
 
   return { id: docRef.id, folderName: folderName.trim(), parentId };
+}
+
+/**
+ * Map every folder in a project to the set of file ids it directly contains (its
+ * `subfiles`). Used to work out which folder a file currently lives in without
+ * adding a parent pointer to the file document (see docs/dataModel.md, where a
+ * file's folder membership is recorded only on the folder side).
+ */
+export async function getFolderFileIds(
+  projectId: string,
+): Promise<Map<string, Set<string>>> {
+  const snapshot = await getDocs(
+    collection(db, "projects", projectId, "folders"),
+  );
+  const map = new Map<string, Set<string>>();
+  for (const folderDoc of snapshot.docs) {
+    const subfiles = (folderDoc.data().subfiles as DocumentReference[] | undefined) ?? [];
+    map.set(folderDoc.id, new Set(subfiles.map((ref) => ref.id)));
+  }
+  return map;
+}
+
+/**
+ * Move a file to a different folder. The file is removed from every folder that
+ * currently lists it in `subfiles` and added to `toFolderId`; a null
+ * `toFolderId` moves it to the project root (no folder lists it). The removals
+ * and the addition are committed together as one batch so the file is never left
+ * in two folders or none. A no-op when the file already lives only in the
+ * destination.
+ */
+export async function moveFile(
+  projectId: string,
+  fileId: string,
+  toFolderId: string | null,
+): Promise<void> {
+  const fileRef = doc(db, "projects", projectId, "files", fileId);
+  const foldersSnapshot = await getDocs(
+    collection(db, "projects", projectId, "folders"),
+  );
+
+  const batch = writeBatch(db);
+  for (const folderDoc of foldersSnapshot.docs) {
+    const subfiles = (folderDoc.data().subfiles as DocumentReference[] | undefined) ?? [];
+    const listsFile = subfiles.some((ref) => ref.id === fileId);
+    // Leave the destination untouched if it already holds the file, and strip
+    // the file from any other folder that still references it.
+    if (listsFile && folderDoc.id !== toFolderId) {
+      batch.update(folderDoc.ref, { subfiles: arrayRemove(fileRef) });
+    }
+  }
+  if (toFolderId) {
+    batch.update(doc(db, "projects", projectId, "folders", toFolderId), {
+      subfiles: arrayUnion(fileRef),
+    });
+  }
+  await batch.commit();
 }
 
 /**

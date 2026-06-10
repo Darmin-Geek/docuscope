@@ -27,13 +27,15 @@ export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
 export const storage: FirebaseStorage = getStorage(app);
 
-// In local development, talk to the Firebase emulators instead of the real
-// project so testing never touches production. Gated on an explicit env flag
-// so the static export build always targets the live project.
-if (
-  typeof window !== "undefined" &&
-  process.env.NEXT_PUBLIC_FIREBASE_USE_EMULATOR === "true"
-) {
+// Connect to emulators:
+// - In the browser when NEXT_PUBLIC_FIREBASE_USE_EMULATOR is true (local dev via .env.local)
+// - In Node.js when FIRESTORE_EMULATOR_HOST is set (firebase emulators:exec sets this for tests)
+const shouldUseEmulators =
+  (typeof window !== "undefined" &&
+    process.env.NEXT_PUBLIC_FIREBASE_USE_EMULATOR === "true") ||
+  (typeof window === "undefined" && !!process.env.FIRESTORE_EMULATOR_HOST);
+
+if (shouldUseEmulators) {
   connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
   connectFirestoreEmulator(db, "localhost", 8080);
   connectStorageEmulator(storage, "localhost", 9199);

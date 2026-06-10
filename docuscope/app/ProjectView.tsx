@@ -246,6 +246,7 @@ export default function ProjectView({
               setInformationOpen(false);
             }}
             onSaved={handleFileSaved}
+            onMoved={() => void loadFiles()}
             onLabelsChanged={handleFileLabelsChanged}
           />
         )}
