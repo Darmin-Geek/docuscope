@@ -399,3 +399,214 @@ test.describe("Information view", () => {
     await expect(infoSidebar.getByText("No information yet.")).toBeVisible();
   });
 });
+
+// ── Information relationships ─────────────────────────────────────────────────
+
+test.describe("Information relationships", () => {
+  /**
+   * Creates two info entries across two files and leaves file.svg's info
+   * sidebar open with "Info B" selected (editor visible, relationships section
+   * accessible). Globe.svg carries "Info A"; file.svg carries "Info B".
+   */
+  async function setupTwoInfoEntries(page: Page, email: string): Promise<void> {
+    await signUpAndOpenProject(page, email);
+    await uploadFile(page, SVG.globe); // file A
+    await uploadFile(page, SVG.file);  // file B
+
+    // Reusable locator — re-evaluated lazily each time so it picks up whichever
+    // InformationSidebar is currently mounted.
+    const infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    // Add "Info A" to globe.svg.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    await page
+      .locator("aside")
+      .last()
+      .getByRole("button", { name: "Open information view" })
+      .click();
+    await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
+    await infoSidebar.locator("input[placeholder='Untitled']").fill("Info A");
+    await infoSidebar.locator("input[placeholder='Untitled']").press("Enter");
+    await expect(
+      infoSidebar.getByRole("button", { name: "Info A", exact: true })
+    ).toBeVisible();
+
+    // Close globe.svg's info sidebar, then its file sidebar.
+    await page.getByRole("button", { name: "Close information view" }).click();
+    await page.locator("aside").last().getByRole("button", { name: "Close" }).click();
+
+    // Add "Info B" to file.svg, leaving its info sidebar open with Info B selected.
+    await page.getByRole("cell", { name: "file.svg" }).click();
+    await page
+      .locator("aside")
+      .last()
+      .getByRole("button", { name: "Open information view" })
+      .click();
+    await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
+    await infoSidebar.locator("input[placeholder='Untitled']").fill("Info B");
+    await infoSidebar.locator("input[placeholder='Untitled']").press("Enter");
+    await expect(
+      infoSidebar.getByRole("button", { name: "Info B", exact: true })
+    ).toBeVisible();
+    // Info B is now selected — editor is open, relationship sections are visible.
+  }
+
+  test("relationship sections appear when an entry is selected", async ({ page }) => {
+    await setupTwoInfoEntries(page, `rel-sections-${Date.now()}@test.com`);
+
+    const infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    await expect(infoSidebar.getByText("Corroborates with:")).toBeVisible();
+    await expect(infoSidebar.getByText("Conflicts with:")).toBeVisible();
+    await expect(
+      infoSidebar.getByRole("button", { name: "+ Add corroborating information" })
+    ).toBeVisible();
+    await expect(
+      infoSidebar.getByRole("button", { name: "+ Add conflicting information" })
+    ).toBeVisible();
+  });
+
+  test("corroborating relationship can be added, is bidirectional, and removed", async ({
+    page,
+  }) => {
+    await setupTwoInfoEntries(page, `rel-corr-${Date.now()}@test.com`);
+
+    const infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    // Open the "Add corroborating information" modal.
+    await infoSidebar
+      .getByRole("button", { name: "+ Add corroborating information" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Add corroborating information" })
+    ).toBeVisible();
+
+    // Modal shows the folder tree with a root entry.
+    await expect(
+      page.getByRole("button", { name: "(root / All files)" })
+    ).toBeVisible();
+
+    // Select globe.svg in the files panel — info list appears.
+    await page.getByRole("button", { name: "globe.svg" }).click();
+    await expect(page.getByRole("button", { name: "Info A" })).toBeVisible();
+
+    // Select Info A — "Confirm relationship" becomes enabled.
+    await page.getByRole("button", { name: "Info A" }).click();
+    const confirmBtn = page.getByRole("button", { name: "Confirm relationship" });
+    await expect(confirmBtn).toBeEnabled();
+    await confirmBtn.click();
+
+    // Modal closes; "Info A — globe.svg" appears under Corroborates with.
+    await expect(infoSidebar.getByText("Info A — globe.svg")).toBeVisible();
+
+    // Verify bidirectionality: open globe.svg's info sidebar and select Info A.
+    await page.getByRole("button", { name: "Close information view" }).click();
+    await page.locator("aside").last().getByRole("button", { name: "Close" }).click();
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    await page
+      .locator("aside")
+      .last()
+      .getByRole("button", { name: "Open information view" })
+      .click();
+    await infoSidebar.getByRole("button", { name: "Info A", exact: true }).click();
+
+    // The reverse link is present on globe.svg's side.
+    await expect(infoSidebar.getByText("Info B — file.svg")).toBeVisible();
+
+    // Remove the link from globe.svg's side.
+    await infoSidebar
+      .getByRole("button", { name: "Remove corroborates-with link to Info B" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Remove relationship?" })
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Yes, remove" }).click();
+
+    // Globe.svg's corroborates link is gone.
+    await expect(infoSidebar.getByText("Info B — file.svg")).not.toBeVisible();
+
+    // File.svg's end is also cleared (bidirectional removal).
+    await page.getByRole("button", { name: "Close information view" }).click();
+    await page.locator("aside").last().getByRole("button", { name: "Close" }).click();
+
+    await page.getByRole("cell", { name: "file.svg" }).click();
+    await page
+      .locator("aside")
+      .last()
+      .getByRole("button", { name: "Open information view" })
+      .click();
+    await infoSidebar.getByRole("button", { name: "Info B", exact: true }).click();
+    await expect(infoSidebar.getByText("Info A — globe.svg")).not.toBeVisible();
+  });
+
+  test("conflicting relationship can be added, is bidirectional, and removed", async ({
+    page,
+  }) => {
+    await setupTwoInfoEntries(page, `rel-conf-${Date.now()}@test.com`);
+
+    const infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    // Open the "Add conflicting information" modal.
+    await infoSidebar
+      .getByRole("button", { name: "+ Add conflicting information" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Add conflicting information" })
+    ).toBeVisible();
+
+    // Select globe.svg → Info A → confirm.
+    await page.getByRole("button", { name: "globe.svg" }).click();
+    await page.getByRole("button", { name: "Info A" }).click();
+    await page.getByRole("button", { name: "Confirm relationship" }).click();
+
+    // "Info A — globe.svg" appears under Conflicts with.
+    await expect(infoSidebar.getByText("Info A — globe.svg")).toBeVisible();
+
+    // Verify bidirectionality on globe.svg's side.
+    await page.getByRole("button", { name: "Close information view" }).click();
+    await page.locator("aside").last().getByRole("button", { name: "Close" }).click();
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    await page
+      .locator("aside")
+      .last()
+      .getByRole("button", { name: "Open information view" })
+      .click();
+    await infoSidebar.getByRole("button", { name: "Info A", exact: true }).click();
+    await expect(infoSidebar.getByText("Info B — file.svg")).toBeVisible();
+
+    // Remove from globe.svg's side.
+    await infoSidebar
+      .getByRole("button", { name: "Remove conflicts-with link to Info B" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Remove relationship?" })
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Yes, remove" }).click();
+
+    // Globe.svg's conflicts link is gone.
+    await expect(infoSidebar.getByText("Info B — file.svg")).not.toBeVisible();
+
+    // File.svg's end is also cleared.
+    await page.getByRole("button", { name: "Close information view" }).click();
+    await page.locator("aside").last().getByRole("button", { name: "Close" }).click();
+
+    await page.getByRole("cell", { name: "file.svg" }).click();
+    await page
+      .locator("aside")
+      .last()
+      .getByRole("button", { name: "Open information view" })
+      .click();
+    await infoSidebar.getByRole("button", { name: "Info B", exact: true }).click();
+    await expect(infoSidebar.getByText("Info A — globe.svg")).not.toBeVisible();
+  });
+});

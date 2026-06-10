@@ -10,15 +10,21 @@ import {
 } from "react";
 import {
   addInformation,
+  addInformationRelationship,
   deleteInformation,
   newInformationId,
+  removeInformationRelationship,
+  resolveInformationRelations,
   subscribeToInformation,
   updateInformation,
   type FileDoc,
   type Information,
+  type InformationRelation,
 } from "@/lib/projects";
 import type { FileLock } from "./useFileLock";
 import DeleteInformationModal from "./DeleteInformationModal";
+import AddRelationshipModal from "./AddRelationshipModal";
+import RemoveRelationshipModal from "./RemoveRelationshipModal";
 
 type InformationSidebarProps = {
   projectId: string;
@@ -89,6 +95,17 @@ export default function InformationSidebar({
   // The entry awaiting delete confirmation, or null when the modal is closed.
   const [deleteTarget, setDeleteTarget] = useState<Information | null>(null);
 
+  // Relationship state
+  const [corroborates, setCorroborates] = useState<InformationRelation[]>([]);
+  const [conflicts, setConflicts] = useState<InformationRelation[]>([]);
+  const [addRelType, setAddRelType] = useState<
+    "corroborates" | "conflicts" | null
+  >(null);
+  const [removeTarget, setRemoveTarget] = useState<{
+    rel: InformationRelation;
+    type: "corroborates" | "conflicts";
+  } | null>(null);
+
   // Whether *we* are mid-edit in the form, so the live subscription doesn't
   // overwrite in-progress text (mirrors FileSidebar's editingFields guard).
   const editingInfo = useRef(false);
@@ -105,6 +122,28 @@ export default function InformationSidebar({
       );
     });
   }, [projectId, file.id]);
+
+  // Resolve relationships whenever the selected item changes (its path arrays
+  // update when relationships are added/removed via the live subscription).
+  useEffect(() => {
+    if (selectedItem == null) {
+      setCorroborates([]);
+      setConflicts([]);
+      return;
+    }
+    let active = true;
+    Promise.all([
+      resolveInformationRelations(selectedItem.corroboratesWithPaths),
+      resolveInformationRelations(selectedItem.conflictsWithPaths),
+    ]).then(([corr, conf]) => {
+      if (!active) return;
+      setCorroborates(corr);
+      setConflicts(conf);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedItem]);
 
   // Release the file lock if the panel unmounts while we still hold it (e.g. the
   // user closes the view mid-edit), so the file doesn't stay checked out.
@@ -158,16 +197,23 @@ export default function InformationSidebar({
       overallBias: null,
       informationReliability: null,
       informationCredibility: null,
+      corroboratesWithPaths: [],
+      conflictsWithPaths: [],
     };
     setPending((prev) => [...prev, draft]);
     setSelectedId(id);
-    void addInformation(projectId, file.id, {
-      informationTitle: draft.informationTitle,
-      informationText: draft.informationText,
-      overallBias: draft.overallBias,
-      informationReliability: draft.informationReliability,
-      informationCredibility: draft.informationCredibility,
-    }, id).catch((err: unknown) => {
+    void addInformation(
+      projectId,
+      file.id,
+      {
+        informationTitle: draft.informationTitle,
+        informationText: draft.informationText,
+        overallBias: draft.overallBias,
+        informationReliability: draft.informationReliability,
+        informationCredibility: draft.informationCredibility,
+      },
+      id,
+    ).catch((err: unknown) => {
       setError(
         err instanceof Error ? err.message : "Failed to add information.",
       );
@@ -243,6 +289,36 @@ export default function InformationSidebar({
       setSelectedId(null);
     }
     setDeleteTarget(null);
+  }
+
+  async function handleConfirmRelationship(
+    targetFileId: string,
+    targetInfoId: string,
+  ) {
+    if (!selectedId || !addRelType) return;
+    await addInformationRelationship(
+      projectId,
+      file.id,
+      selectedId,
+      targetFileId,
+      targetInfoId,
+      addRelType,
+    );
+    // The live subscription will update selectedItem, which re-triggers the
+    // relations effect. Close the modal immediately.
+    setAddRelType(null);
+  }
+
+  async function handleRemoveRelationship() {
+    if (!removeTarget || !selectedId) return;
+    await removeInformationRelationship(
+      projectId,
+      file.id,
+      selectedId,
+      removeTarget.rel.informationPath,
+      removeTarget.type,
+    );
+    setRemoveTarget(null);
   }
 
   const fieldClass =
@@ -408,6 +484,97 @@ export default function InformationSidebar({
             {error && (
               <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
             )}
+
+            {/* Relationships section */}
+            <div className="flex flex-col gap-3 border-t border-black/[.08] pt-3 dark:border-white/[.145]">
+              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Relationships
+              </span>
+
+              {/* Corroborates with */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                  Corroborates with:
+                </span>
+                {corroborates.length === 0 ? (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    None.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {corroborates.map((rel) => (
+                      <li
+                        key={rel.informationPath}
+                        className="flex items-center justify-between gap-2 rounded-md bg-black/[.03] px-2 py-1.5 dark:bg-white/[.04]"
+                      >
+                        <span className="min-w-0 truncate text-xs text-black dark:text-zinc-50">
+                          {`${rel.informationTitle || "Untitled"} — ${rel.filename}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRemoveTarget({ rel, type: "corroborates" })
+                          }
+                          aria-label={`Remove corroborates-with link to ${rel.informationTitle || "Untitled"}`}
+                          className="shrink-0 text-zinc-400 transition-colors hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAddRelType("corroborates")}
+                  className="flex h-7 items-center justify-start rounded-md px-2 text-xs text-zinc-500 transition-colors hover:bg-black/[.04] hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/[.06] dark:hover:text-zinc-200"
+                >
+                  + Add corroborating information
+                </button>
+              </div>
+
+              {/* Conflicts with */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                  Conflicts with:
+                </span>
+                {conflicts.length === 0 ? (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    None.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {conflicts.map((rel) => (
+                      <li
+                        key={rel.informationPath}
+                        className="flex items-center justify-between gap-2 rounded-md bg-black/[.03] px-2 py-1.5 dark:bg-white/[.04]"
+                      >
+                        <span className="min-w-0 truncate text-xs text-black dark:text-zinc-50">
+                          {`${rel.informationTitle || "Untitled"} — ${rel.filename}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRemoveTarget({ rel, type: "conflicts" })
+                          }
+                          aria-label={`Remove conflicts-with link to ${rel.informationTitle || "Untitled"}`}
+                          className="shrink-0 text-zinc-400 transition-colors hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAddRelType("conflicts")}
+                  className="flex h-7 items-center justify-start rounded-md px-2 text-xs text-zinc-500 transition-colors hover:bg-black/[.04] hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/[.06] dark:hover:text-zinc-200"
+                >
+                  + Add conflicting information
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -417,6 +584,26 @@ export default function InformationSidebar({
           title={deleteTarget.informationTitle}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={handleConfirmDelete}
+        />
+      )}
+
+      {addRelType && selectedId && (
+        <AddRelationshipModal
+          projectId={projectId}
+          sourceFileId={file.id}
+          sourceInfoId={selectedId}
+          type={addRelType}
+          onClose={() => setAddRelType(null)}
+          onConfirm={handleConfirmRelationship}
+        />
+      )}
+
+      {removeTarget && (
+        <RemoveRelationshipModal
+          informationTitle={removeTarget.rel.informationTitle}
+          type={removeTarget.type}
+          onCancel={() => setRemoveTarget(null)}
+          onConfirm={handleRemoveRelationship}
         />
       )}
     </aside>

@@ -54,7 +54,9 @@ Each document in files collections has the following two subcollections:
 * informationText
 * overallBias: a string
 * informationReliability: a string
-* informationCredibility: a string 
+* informationCredibility: a string
+* corroboratesWith: a list of document references to other information documents
+* conflictsWith: a list of document references to other information documents
 
 Each document in information collections have a comments subcollection as well, which has the same structure as comments for files.
 
