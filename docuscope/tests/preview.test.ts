@@ -4,6 +4,7 @@ import path from "path";
 const TEST_FILES = path.join(__dirname, "..", "..", "testFiles");
 const PDF_FILE = path.join(TEST_FILES, "PreviewDemo.pdf");
 const DOCX_FILE = path.join(TEST_FILES, "PreviewDemo.docx");
+const SVG_FILE = path.join(TEST_FILES, "move_folder_icon.svg");
 
 async function signUpAndOpenProject(page: Page, email: string): Promise<void> {
   await page.goto("/");
@@ -70,5 +71,19 @@ test.describe("File preview", () => {
     await expect(previewDiv).toBeVisible();
     const content = await previewDiv.textContent();
     expect(content?.trim().length).toBeGreaterThan(0);
+  });
+
+  test("SVG file shows an image in the preview section", async ({ page }) => {
+    await signUpAndOpenProject(page, `preview-svg-${Date.now()}@test.com`);
+    await uploadAndOpenSidebar(page, SVG_FILE);
+
+    const sidebar = page.locator("aside").last();
+    // The image preview renders as <img alt="move_folder_icon.svg"> once the
+    // Storage download URL resolves.
+    const previewImg = sidebar.getByRole("img", { name: "move_folder_icon.svg" });
+    await expect(previewImg).toBeVisible({ timeout: 20_000 });
+
+    const src = await previewImg.getAttribute("src");
+    expect(src).toBeTruthy();
   });
 });
