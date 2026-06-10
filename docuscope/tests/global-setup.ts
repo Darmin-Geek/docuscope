@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 // give a clear error instead of a cryptic network timeout.
 export default async function globalSetup() {
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL ?? 'postgresql://docuscope:docuscope@localhost:5432/docuscope',
+    connectionString: process.env.DATABASE_URL ?? 'postgresql://docuscope:docuscope@localhost:5433/docuscope',
   });
   const maxAttempts = 20;
 
