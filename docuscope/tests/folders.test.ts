@@ -1,19 +1,15 @@
 import { test, expect } from "@playwright/test";
-import { moveFile, getFolderFileIds } from "../lib/projects";
+import { moveFile, getFolderFileIds } from "../lib/projects.server";
 import {
+  createTestProject,
   createTestFile,
   createTestFolder,
   getSubfileIds,
-} from "./firestore-helpers";
-
-// Each test gets its own project id to avoid state leaking between tests.
-function pid(): string {
-  return `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
+} from "./db-helpers";
 
 test.describe("moveFile", () => {
   test("root → folder: file is added to the target folder's subfiles", async () => {
-    const projectId = pid();
+    const projectId = await createTestProject();
     const fileId = await createTestFile(projectId);
     const folderId = await createTestFolder(projectId, "Folder A");
 
@@ -24,7 +20,7 @@ test.describe("moveFile", () => {
   });
 
   test("folder → root: file is removed from the source folder, ends up in no folder", async () => {
-    const projectId = pid();
+    const projectId = await createTestProject();
     const fileId = await createTestFile(projectId);
     const folderId = await createTestFolder(projectId, "Folder A", [fileId]);
 
@@ -35,7 +31,7 @@ test.describe("moveFile", () => {
   });
 
   test("folder → folder: removed from source, added to destination in one batch", async () => {
-    const projectId = pid();
+    const projectId = await createTestProject();
     const fileId = await createTestFile(projectId);
     const srcId = await createTestFolder(projectId, "Source", [fileId]);
     const dstId = await createTestFolder(projectId, "Destination");
@@ -49,21 +45,19 @@ test.describe("moveFile", () => {
   });
 
   test("no-op: if file is already in the destination folder, the document is not written", async () => {
-    const projectId = pid();
+    const projectId = await createTestProject();
     const fileId = await createTestFile(projectId);
     const folderId = await createTestFolder(projectId, "Folder A", [fileId]);
 
     await moveFile(projectId, fileId, folderId);
 
     const subfiles = await getSubfileIds(projectId, folderId);
-    // File is still present and was not duplicated.
     expect(subfiles.filter((id) => id === fileId)).toHaveLength(1);
   });
 
   test("cleanup: file in multiple folders is removed from all non-destination folders", async () => {
-    const projectId = pid();
+    const projectId = await createTestProject();
     const fileId = await createTestFile(projectId);
-    // Simulate the corrupt state where the file ended up in two folders.
     const folder1Id = await createTestFolder(projectId, "Folder 1", [fileId]);
     const folder2Id = await createTestFolder(projectId, "Folder 2", [fileId]);
     const dstId = await createTestFolder(projectId, "Destination");
@@ -81,14 +75,11 @@ test.describe("moveFile", () => {
 
 test.describe("getFolderFileIds", () => {
   test("returns the correct set of file ids per folder", async () => {
-    const projectId = pid();
+    const projectId = await createTestProject();
     const file1 = await createTestFile(projectId);
     const file2 = await createTestFile(projectId);
     const file3 = await createTestFile(projectId);
-    const folder1Id = await createTestFolder(projectId, "Folder 1", [
-      file1,
-      file2,
-    ]);
+    const folder1Id = await createTestFolder(projectId, "Folder 1", [file1, file2]);
     const folder2Id = await createTestFolder(projectId, "Folder 2", [file3]);
 
     const result = await getFolderFileIds(projectId);
@@ -101,7 +92,7 @@ test.describe("getFolderFileIds", () => {
   });
 
   test("returns an empty set for folders with no subfiles", async () => {
-    const projectId = pid();
+    const projectId = await createTestProject();
     const folderId = await createTestFolder(projectId, "Empty Folder");
 
     const result = await getFolderFileIds(projectId);

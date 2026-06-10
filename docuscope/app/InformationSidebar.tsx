@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -11,8 +12,8 @@ import {
 import {
   addInformation,
   deleteInformation,
+  getInformation,
   newInformationId,
-  subscribeToInformation,
   updateInformation,
   type FileDoc,
   type Information,
@@ -46,9 +47,9 @@ export default function InformationSidebar({
   const { lockedByOther, editorName } = lock;
 
   const [items, setItems] = useState<Information[]>([]);
-  // Entries created locally that the live subscription hasn't echoed back yet.
+  // Entries created locally that the server hasn't confirmed yet.
   // They let a new entry appear in the list and open for editing immediately,
-  // without waiting for Firebase to acknowledge the create.
+  // without waiting for the POST response to come back.
   const [pending, setPending] = useState<Information[]>([]);
 
   // The list shown in the UI: live entries plus any pending creates not yet
@@ -93,18 +94,20 @@ export default function InformationSidebar({
   // overwrite in-progress text (mirrors FileSidebar's editingFields guard).
   const editingInfo = useRef(false);
 
-  // Keep the list of entries live so titles added/removed/renamed by any
-  // contributor (or by us) show up without a refresh. Each update also drops any
-  // optimistic creates the live data now includes, so `pending` doesn't grow
-  // without bound and the live copy becomes the source of truth.
-  useEffect(() => {
-    return subscribeToInformation(projectId, file.id, (live) => {
+  // Fetch the current list and merge it with any pending optimistic creates.
+  const refreshItems = useCallback(() => {
+    return getInformation(projectId, file.id).then((live) => {
       setItems(live);
       setPending((prev) =>
         prev.filter((entry) => !live.some((entry2) => entry2.id === entry.id)),
       );
     });
   }, [projectId, file.id]);
+
+  // Load the list on mount and whenever the file changes.
+  useEffect(() => {
+    void refreshItems();
+  }, [refreshItems]);
 
   // Release the file lock if the panel unmounts while we still hold it (e.g. the
   // user closes the view mid-edit), so the file doesn't stay checked out.
@@ -146,8 +149,9 @@ export default function InformationSidebar({
   }
 
   // Create a blank entry and open it for editing right away. The entry is added
-  // to `pending` so it appears in the list and the editor opens immediately,
-  // without waiting for Firebase to acknowledge the write.
+  // to `pending` so it appears in the list and the editor opens immediately.
+  // Once the API call resolves, refreshItems replaces the pending entry with
+  // the server copy.
   function startNew() {
     setError(null);
     const id = newInformationId(projectId, file.id);
@@ -161,17 +165,19 @@ export default function InformationSidebar({
     };
     setPending((prev) => [...prev, draft]);
     setSelectedId(id);
-    void addInformation(projectId, file.id, {
+    addInformation(projectId, file.id, {
       informationTitle: draft.informationTitle,
       informationText: draft.informationText,
       overallBias: draft.overallBias,
       informationReliability: draft.informationReliability,
       informationCredibility: draft.informationCredibility,
-    }, id).catch((err: unknown) => {
-      setError(
-        err instanceof Error ? err.message : "Failed to add information.",
-      );
-    });
+    }, id)
+      .then(() => refreshItems())
+      .catch((err: unknown) => {
+        setError(
+          err instanceof Error ? err.message : "Failed to add information.",
+        );
+      });
   }
 
   // Claim the lock when the form gains focus, releasing it once focus leaves the
@@ -220,6 +226,7 @@ export default function InformationSidebar({
     setError(null);
     try {
       await updateInformation(projectId, file.id, selectedId, fields);
+      await refreshItems();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save.");
     } finally {
@@ -243,6 +250,7 @@ export default function InformationSidebar({
       setSelectedId(null);
     }
     setDeleteTarget(null);
+    await refreshItems();
   }
 
   const fieldClass =

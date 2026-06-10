@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: "./tests",
   timeout: 30_000,
   expect: { timeout: 10_000 },
-  // Run tests serially — the Firebase emulator is shared state
+  // Run tests serially — the database is shared state
   workers: 1,
   use: {
     baseURL: "http://localhost:3000",

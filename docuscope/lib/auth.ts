@@ -1,62 +1,92 @@
+import './cognito';
+
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  sendPasswordResetEmail,
+  signUp as amplifySignUp,
+  signIn,
   signOut,
-  onAuthStateChanged,
-  type User,
-} from "firebase/auth";
-import { auth } from "./firebase";
+  fetchAuthSession,
+  resetPassword as amplifyResetPassword,
+} from 'aws-amplify/auth';
+import { Hub } from 'aws-amplify/utils';
+import type { CognitoUser } from 'amazon-cognito-identity-js';
 
-// All Firebase auth access is funneled through these functions so the UI never
-// talks to Firebase directly (see docs/designPrinciples.md). This makes it
-// possible to swap providers later without touching the components.
+export type { CognitoUser };
 
-export type { User };
+export type User = {
+  uid: string;
+  email: string | null;
+};
 
-// Email addresses are case-insensitive, but Firebase auth stores them verbatim.
-// We normalise every address to lower case before it reaches Firebase so a
-// user's auth token email always matches the lower-cased emails stored in
-// project contributor lists (see lib/projects.ts), keeping the security rules
-// and project queries reliable regardless of how the address was typed.
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** Create a new account with an email + password and sign the user in. */
 export async function signUp(email: string, password: string): Promise<User> {
-  const credential = await createUserWithEmailAndPassword(
-    auth,
-    normalizeEmail(email),
+  const normalized = normalizeEmail(email);
+  const result = await amplifySignUp({
+    username: normalized,
     password,
-  );
-  return credential.user;
+    options: {
+      userAttributes: { email: normalized },
+      autoSignIn: true,
+    },
+  });
+  const session = await fetchAuthSession();
+  const payload = session.tokens?.idToken?.payload;
+  return {
+    uid: (payload?.sub as string) ?? result.userId ?? normalized,
+    email: normalized,
+  };
 }
 
-/** Sign an existing user in with their email + password. */
 export async function logIn(email: string, password: string): Promise<User> {
-  const credential = await signInWithEmailAndPassword(
-    auth,
-    normalizeEmail(email),
-    password,
-  );
-  return credential.user;
+  const normalized = normalizeEmail(email);
+  await signIn({ username: normalized, password });
+  const session = await fetchAuthSession();
+  const payload = session.tokens?.idToken?.payload;
+  return {
+    uid: payload?.sub as string,
+    email: normalized,
+  };
 }
 
-/** Send a password reset email to the given address. */
+export async function logOut(): Promise<void> {
+  await signOut();
+}
+
 export function resetPassword(email: string): Promise<void> {
-  return sendPasswordResetEmail(auth, normalizeEmail(email));
+  return amplifyResetPassword({ username: normalizeEmail(email) }).then(() => {});
 }
 
-/** Sign the current user out. */
-export function logOut(): Promise<void> {
-  return signOut(auth);
-}
-
-/**
- * Subscribe to authentication state changes. The callback receives the current
- * user (or null when signed out). Returns an unsubscribe function.
- */
 export function onAuthChange(callback: (user: User | null) => void): () => void {
-  return onAuthStateChanged(auth, callback);
+  fetchAuthSession()
+    .then((session) => {
+      const payload = session.tokens?.idToken?.payload;
+      if (payload?.sub) {
+        callback({
+          uid: payload.sub as string,
+          email: (payload.email as string) ?? null,
+        });
+      } else {
+        callback(null);
+      }
+    })
+    .catch(() => callback(null));
+
+  const { remove } = Hub.listen('auth', ({ payload }) => {
+    if (payload.event === 'signedIn') {
+      fetchAuthSession()
+        .then((session) => {
+          const p = session.tokens?.idToken?.payload;
+          if (p?.sub) {
+            callback({ uid: p.sub as string, email: (p.email as string) ?? null });
+          }
+        })
+        .catch(() => {});
+    } else if (payload.event === 'signedOut') {
+      callback(null);
+    }
+  });
+
+  return remove;
 }

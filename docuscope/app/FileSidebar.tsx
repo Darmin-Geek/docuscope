@@ -9,12 +9,10 @@ import {
 } from "react";
 import {
   getFileDownloadUrl,
+  getFile,
   updateFileMetadata,
   addLabelToFile,
   removeLabelFromFile,
-  subscribeToFile,
-  checkOutFile,
-  checkInFile,
   getFolders,
   getFolderFileIds,
   moveFile,
@@ -256,23 +254,27 @@ export default function FileSidebar({
     };
   }, [file.storageReference, kind]);
 
-  // Subscribe to the file so the text another editor leaves behind shows up
-  // here live. We only adopt the saved values into the form when we aren't
-  // mid-edit ourselves, so this both mirrors another editor's changes and
-  // refreshes the fields the moment they release the lock.
+  // When another editor releases the lock, fetch the latest saved values so
+  // the form shows what they left behind before we start editing.
+  const prevLockedRef = useRef(false);
   useEffect(() => {
-    const unsubscribe = subscribeToFile(projectId, file.id, (live) => {
-      if (!editingFields.current) {
-        setAuthor(live.author ?? "");
-        setDateValue(timestampToDateInput(live.createdDate));
-        setOverallBias(live.overallBias ?? "");
-        setSource(live.source ?? "");
-        setReliability(live.fileReliability ?? "");
-        setCredibility(live.fileCredibility ?? "");
-      }
-    });
-    return unsubscribe;
-  }, [projectId, file.id]);
+    const wasLocked = prevLockedRef.current;
+    prevLockedRef.current = lockedByOther;
+    if (wasLocked && !lockedByOther && !editingFields.current) {
+      getFile(projectId, file.id)
+        .then((live) => {
+          if (!editingFields.current) {
+            setAuthor(live.author ?? "");
+            setDateValue(timestampToDateInput(live.createdDate));
+            setOverallBias(live.overallBias ?? "");
+            setSource(live.source ?? "");
+            setReliability(live.fileReliability ?? "");
+            setCredibility(live.fileCredibility ?? "");
+          }
+        })
+        .catch(() => {});
+    }
+  }, [lockedByOther, projectId, file.id]);
 
   // If another user grabs the lock (e.g. we lost a claim race), stop guarding
   // the fields so the incoming snapshot can replace whatever we had typed.

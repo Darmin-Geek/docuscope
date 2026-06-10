@@ -546,10 +546,10 @@ test.describe("Information view", () => {
     await expect(infoSidebar.getByLabel("Information Reliability")).toHaveValue("Medium reliability.");
     await expect(infoSidebar.getByLabel("Information Credibility")).toHaveValue("Moderate credibility.");
 
-    // Save by pressing Enter on the title; commits all field values to Firebase.
+    // Save by pressing Enter on the title; commits all field values to the server.
     await infoSidebar.locator("input[placeholder='Untitled']").press("Enter");
 
-    // Wait for Firebase to echo the saved title back into the list.
+    // Wait for the saved title to appear back in the list.
     await expect(
       infoSidebar.getByRole("button", { name: infoTitle, exact: true })
     ).toBeVisible();
