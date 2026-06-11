@@ -209,11 +209,7 @@ export async function checkInFile(projectId: string, fileId: string): Promise<vo
   });
 }
 
-export async function getFileDownloadUrl(storageReference: string): Promise<string> {
-  // storageReference is "projects/<projectId>/files/<fileId>/<filename>"
-  const parts = storageReference.split('/');
-  const projectId = parts[1];
-  const fileId = parts[3];
+export async function getFileDownloadUrl(projectId: string, fileId: string): Promise<string> {
   const { url } = await api<{ url: string }>(
     `/api/projects/${projectId}/files/${fileId}/download-url`,
   );
