@@ -46,6 +46,7 @@ async function createFolder(page: Page, name: string): Promise<void> {
 async function uploadFile(page: Page, filePath: string): Promise<void> {
   const filename = path.basename(filePath);
   await page.locator("input[type='file']").setInputFiles(filePath);
+  await expect(page.getByText("Uploading…")).toBeHidden();
   await expect(page.getByRole("cell", { name: filename })).toBeVisible();
 }
 
