@@ -35,5 +35,13 @@ function createPool(): Pool {
   });
 }
 
-const pool = createPool();
-export const db = drizzle(pool, { schema });
+let _db: ReturnType<typeof drizzle<typeof schema>> | undefined;
+
+function instance() {
+  if (!_db) _db = drizzle(createPool(), { schema });
+  return _db;
+}
+
+export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
+  get: (_, key) => Reflect.get(instance(), key),
+});
