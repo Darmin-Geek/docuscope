@@ -9,6 +9,11 @@ export default {
   out: './drizzle/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    host: process.env.DB_HOST!,
+    port: Number(process.env.DB_PORT ?? 5432),
+    user: process.env.DB_USER!,
+    database: process.env.DB_NAME!,
+    password: process.env.DB_PASSWORD,
+    ssl: process.env.TEST_AUTH_SECRET ? false : { rejectUnauthorized: false },
   },
 } satisfies Config;

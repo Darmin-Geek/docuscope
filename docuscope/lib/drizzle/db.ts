@@ -3,21 +3,18 @@ import { Pool } from 'pg';
 import { Signer } from '@aws-sdk/rds-signer';
 import * as schema from './schema';
 
-function createPool(): Pool {
-  const connectionString = process.env.DATABASE_URL!;
+function createDbConnection(): Pool {
+  const host = process.env.DB_HOST!;
+  const port = Number(process.env.DB_PORT ?? 5432);
+  const user = process.env.DB_USER!;
+  const database = process.env.DB_NAME!;
 
   // Test mode: plain connection to local Docker postgres
   if (process.env.TEST_AUTH_SECRET) {
-    return new Pool({ connectionString });
+    return new Pool({ host, port, user, database, password: process.env.DB_PASSWORD });
   }
 
   // Production: IAM auth token as the password, SSL required
-  const url = new URL(connectionString);
-  const host = url.hostname;
-  const port = parseInt(url.port || '5432', 10);
-  const user = url.username;
-  const database = url.pathname.slice(1);
-
   const signer = new Signer({
     hostname: host,
     port,
@@ -28,17 +25,17 @@ function createPool(): Pool {
   return new Pool({
     host,
     port,
-    user,
     database,
-    ssl: { rejectUnauthorized: true },
+    user,
     password: () => signer.getAuthToken(),
+    ssl: { rejectUnauthorized: false },
   });
 }
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | undefined;
 
 function instance() {
-  if (!_db) _db = drizzle(createPool(), { schema });
+  if (!_db) _db = drizzle(createDbConnection(), { schema });
   return _db;
 }
 
