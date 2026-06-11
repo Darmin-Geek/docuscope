@@ -67,8 +67,8 @@ export async function injectOidcUser(
   await page.goto('/');
 
   const region = process.env.NEXT_PUBLIC_AWS_REGION ?? 'us-east-1';
-  const userPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID ?? 'us-east-1_TEST';
-  const clientId = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID ?? 'test-client-id';
+  const userPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID;
+  const clientId = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID;
   const authority = `https://cognito-idp.${region}.amazonaws.com/${userPoolId}`;
   // Key format used by oidc-client-ts WebStorageStateStore
   const storageKey = `oidc.user:${authority}:${clientId}`;

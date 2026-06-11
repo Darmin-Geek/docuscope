@@ -431,7 +431,6 @@ test.describe("Move file", () => {
     await expect(page.getByRole("heading", { name: "Move File" })).not.toBeVisible();
 
     // Close the sidebar, deselect the folder, then re-select to confirm the file is still there.
-    await fileSidebar.getByRole("button", { name: "Close" }).click();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: folderName }).click();
     await expect(page.getByRole("cell", { name: "globe.svg" })).toBeVisible();

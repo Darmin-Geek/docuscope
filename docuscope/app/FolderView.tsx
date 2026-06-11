@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   getFolders,
   createFolder,
@@ -42,9 +42,7 @@ export default function FolderView({
 
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
+useEffect(() => {
     // Guard against a stale response from a previous projectId resolving after
     // this effect has been cleaned up.
     let active = true;
@@ -132,20 +130,18 @@ export default function FolderView({
         >
           Create Folder
         </button>
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="flex h-9 items-center justify-center rounded-full border border-solid border-black/[.08] px-4 text-sm font-medium transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+        <label
+          className="flex h-9 cursor-pointer items-center justify-center rounded-full border border-solid border-black/[.08] px-4 text-sm font-medium transition-colors hover:bg-black/[.04] aria-disabled:cursor-not-allowed aria-disabled:opacity-50 dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+          aria-disabled={uploading}
         >
           {uploading ? "Uploading…" : "Upload File"}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          onChange={handleFileChange}
-          className="hidden"
-        />
+          <input
+            type="file"
+            onChange={handleFileChange}
+            disabled={uploading}
+            className="hidden"
+          />
+        </label>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
