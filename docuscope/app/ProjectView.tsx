@@ -21,7 +21,7 @@ type ProjectViewProps = {
   // The signed-in user's display name, used as the author of uploaded files.
   // Null when they haven't set one, in which case the author is left blank.
   authorName: string | null;
-  // The signed-in user's Firebase auth uid, used to claim/recognise the file
+  // The signed-in user's Cognito uid, used to claim/recognise the file
   // check-out lock so the sidebar can tell "me" from "another editor".
   userId: string;
   // The signed-in user's email, used by project settings to manage the

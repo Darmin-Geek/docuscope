@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import path from "path";
+import { injectOidcUser } from "./helpers";
 
 // SVG files used as uploads in these tests (vercel.svg excluded).
 const PUBLIC = path.join(__dirname, "..", "public");
@@ -12,13 +13,10 @@ const SVG = {
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
-/** Signs up a fresh account, creates one project, and opens it. */
+/** Signs in a fresh user, creates one project, and opens it. */
 async function signUpAndOpenProject(page: Page, email: string): Promise<void> {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Sign Up" }).click();
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill("testpass123");
-  await page.locator("button[type='submit']").click();
+  const uid = `uid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await injectOidcUser(page, uid, email);
   await expect(
     page.getByRole("heading", { name: "Your Projects" })
   ).toBeVisible();
@@ -48,6 +46,7 @@ async function createFolder(page: Page, name: string): Promise<void> {
 async function uploadFile(page: Page, filePath: string): Promise<void> {
   const filename = path.basename(filePath);
   await page.locator("input[type='file']").setInputFiles(filePath);
+  await expect(page.getByText("Uploading…")).toBeHidden();
   await expect(page.getByRole("cell", { name: filename })).toBeVisible();
 }
 
@@ -433,7 +432,6 @@ test.describe("Move file", () => {
     await expect(page.getByRole("heading", { name: "Move File" })).not.toBeVisible();
 
     // Close the sidebar, deselect the folder, then re-select to confirm the file is still there.
-    await fileSidebar.getByRole("button", { name: "Close" }).click();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: folderName }).click();
     await expect(page.getByRole("cell", { name: "globe.svg" })).toBeVisible();
@@ -546,10 +544,10 @@ test.describe("Information view", () => {
     await expect(infoSidebar.getByLabel("Information Reliability")).toHaveValue("Medium reliability.");
     await expect(infoSidebar.getByLabel("Information Credibility")).toHaveValue("Moderate credibility.");
 
-    // Save by pressing Enter on the title; commits all field values to Firebase.
+    // Save by pressing Enter on the title; commits all field values to the server.
     await infoSidebar.locator("input[placeholder='Untitled']").press("Enter");
 
-    // Wait for Firebase to echo the saved title back into the list.
+    // Wait for the saved title to appear back in the list.
     await expect(
       infoSidebar.getByRole("button", { name: infoTitle, exact: true })
     ).toBeVisible();

@@ -1,28 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { checkInFile, checkOutFile, subscribeToFile } from "@/lib/projects";
+import { checkInFile, checkOutFile, getFile } from "@/lib/projects";
 import { getUserProfile } from "@/lib/users";
 
-/**
- * Coordinated access to a single file's check-out lock (`checkedOutBy`, see
- * docs/dataModel.md). Lifted above the file detail and information sidebars so
- * the two panels share one lock: editing a file detail OR any of its
- * information checks the whole file out to the current user, which is exactly
- * what blocks every other contributor from touching either while it's held.
- */
 export type FileLock = {
-  /** True when someone else currently holds the file checked out. */
   lockedByOther: boolean;
-  /** Resolved display name of the other holder, or null until/if it loads. */
   editorName: string | null;
-  /**
-   * Claim the lock for an editing session. Reference-counted so the file
-   * detail and information panels can each hold it; the file only frees once
-   * every session has released.
-   */
   acquire: () => void;
-  /** Release one editing session's hold on the lock. */
   release: () => void;
 };
 
@@ -31,43 +16,48 @@ export function useFileLock(
   fileId: string | null,
   userId: string,
 ): FileLock {
-  // The uid currently holding the file, kept live so a lock taken or released
-  // by another user surfaces in both sidebars without a refresh. Tagged with the
-  // file it came from so a snapshot for a previous file is ignored after a
-  // switch (avoiding a reset effect that would cascade renders).
   const [held, setHeld] = useState<{ fileId: string; uid: string | null }>({
     fileId: "",
     uid: null,
   });
   const checkedOutBy = held.fileId === fileId ? held.uid : null;
-  // The resolved profile of the holder, keyed by uid so a name fetched for a
-  // previous holder is never shown for the current one.
-  const [editor, setEditor] = useState<{ uid: string; name: string | null } | null>(
-    null,
-  );
+  const [editor, setEditor] = useState<{ uid: string; name: string | null } | null>(null);
 
-  // How many editing sessions (focused field groups) currently want the lock,
-  // and whether we have actually claimed it in Firestore. Refs so the live
-  // subscription and focus handlers can coordinate without re-rendering.
   const claimants = useRef<number>(0);
   const holding = useRef(false);
 
   const lockedByOther = checkedOutBy != null && checkedOutBy !== userId;
   const editorName = editor?.uid === checkedOutBy ? editor.name : null;
 
-  // Mirror the file's `checkedOutBy` so both panels see the same lock state. The
-  // hold bookkeeping is reset here (and on cleanup below) so a new file never
-  // inherits the previous one's session count.
+  // On file change: fetch once to get the initial checkedOutBy and reset local lock state.
   useEffect(() => {
     if (!fileId) return;
     claimants.current = 0;
     holding.current = false;
-    return subscribeToFile(projectId, fileId, (live) => {
-      setHeld({ fileId, uid: live.checkedOutBy });
-    });
+    let active = true;
+    getFile(projectId, fileId)
+      .then((f) => {
+        if (active) setHeld({ fileId, uid: f.checkedOutBy });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [projectId, fileId]);
 
-  // Resolve the other editor's uid to a display name for the banners.
+  // While someone else holds the lock, poll every 3 s.
+  // Stop (cleanup) when lockedByOther changes to false or fileId changes.
+  useEffect(() => {
+    if (!lockedByOther || !fileId) return;
+    const interval = setInterval(() => {
+      getFile(projectId, fileId)
+        .then((f) => setHeld({ fileId, uid: f.checkedOutBy }))
+        .catch(() => {});
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [lockedByOther, projectId, fileId]);
+
+  // Resolve the other editor's uid to a display name.
   useEffect(() => {
     if (!lockedByOther || checkedOutBy == null) return;
     let active = true;
@@ -76,9 +66,7 @@ export function useFileLock(
       .then((profile) => {
         if (active) setEditor({ uid: holder, name: profile?.name.trim() || null });
       })
-      .catch(() => {
-        // Fall back to the generic label if the name won't load.
-      });
+      .catch(() => {});
     return () => {
       active = false;
     };
@@ -89,11 +77,17 @@ export function useFileLock(
     claimants.current += 1;
     if (holding.current) return;
     holding.current = true;
-    // Transactional claim: if another user wins the race we drop our hold and
-    // the incoming snapshot disables the fields for everyone but the winner.
     checkOutFile(projectId, fileId, userId)
       .then((claimed) => {
-        if (!claimed) holding.current = false;
+        if (!claimed) {
+          // Lost the race; fetch current state so polling can begin.
+          holding.current = false;
+          getFile(projectId, fileId)
+            .then((f) => setHeld({ fileId, uid: f.checkedOutBy }))
+            .catch(() => {});
+        } else {
+          setHeld({ fileId, uid: userId });
+        }
       })
       .catch(() => {
         holding.current = false;
@@ -106,17 +100,20 @@ export function useFileLock(
     if (claimants.current > 0) return;
     if (!holding.current) return;
     holding.current = false;
+    setHeld({ fileId, uid: null });
     void checkInFile(projectId, fileId);
   }, [projectId, fileId]);
 
-  // Release the lock if the file changes or the view unmounts while we still
-  // hold it, so the file never stays stuck checked out to us.
+  // Release the lock if the file changes or the view unmounts while we still hold it.
   useEffect(() => {
     return () => {
       if (!holding.current) return;
       holding.current = false;
       claimants.current = 0;
-      if (fileId) void checkInFile(projectId, fileId);
+      if (fileId) {
+        setHeld({ fileId, uid: null });
+        void checkInFile(projectId, fileId);
+      }
     };
   }, [projectId, fileId]);
 

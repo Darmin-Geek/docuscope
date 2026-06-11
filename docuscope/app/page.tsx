@@ -1,30 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { onAuthChange, logOut, type User } from "@/lib/auth";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "react-oidc-context";
+import type { User } from "@/lib/auth";
 import { getProjectsForUser, type Project } from "@/lib/projects";
-import { getUserProfile, recordUserEmail } from "@/lib/users";
-import AuthModal, { type AuthMode } from "./AuthModal";
-import ResetPasswordModal from "./ResetPasswordModal";
+import { getUserProfile } from "@/lib/users";
 import SettingsModal from "./SettingsModal";
 import CreateProjectModal from "./CreateProjectModal";
 import ProjectView from "./ProjectView";
 
-// Remembers which project the user last opened so a page reload returns them to
-// that project's view instead of the project list. Scoped per-browser only.
 const SELECTED_PROJECT_KEY = "docuscope:selectedProjectId";
 
 function readStoredProjectId(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
+  if (typeof window === "undefined") return null;
   return window.localStorage.getItem(SELECTED_PROJECT_KEY);
 }
 
 function storeSelectedProjectId(id: string | null): void {
-  if (typeof window === "undefined") {
-    return;
-  }
+  if (typeof window === "undefined") return;
   if (id) {
     window.localStorage.setItem(SELECTED_PROJECT_KEY, id);
   } else {
@@ -33,10 +26,17 @@ function storeSelectedProjectId(id: string | null): void {
 }
 
 export default function Home() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
-  const [resettingPassword, setResettingPassword] = useState(false);
+  const auth = useAuth();
+
+  // Derive a stable User from the OIDC session; null when not authenticated.
+  const user = useMemo<User | null>(() => {
+    if (!auth.user) return null;
+    return {
+      uid: auth.user.profile.sub,
+      email: (auth.user.profile.email as string | undefined) ?? null,
+    };
+  }, [auth.user]);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [name, setName] = useState<string | null>(null);
 
@@ -45,17 +45,9 @@ export default function Home() {
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  // Whether we've already attempted to restore the last-opened project for this
-  // session. The restore should run only on the first project load after
-  // sign-in, never on later refreshes (e.g. after creating a project), so it
-  // can't yank a user off the list view they're intentionally looking at.
   const restoredSelectionRef = useRef(false);
-  // True while that first load + restore decision is in flight. We show a
-  // spinner (rather than the project list) until it resolves, so a reload that
-  // reopens a project doesn't flash the list on the way to the project view.
   const [restoringSelection, setRestoringSelection] = useState(true);
 
-  // Select (or clear) a project and remember the choice so a reload reopens it.
   const selectProject = useCallback((project: Project | null) => {
     setSelectedProject(project);
     storeSelectedProjectId(project?.id ?? null);
@@ -68,18 +60,15 @@ export default function Home() {
     try {
       const loaded = await getProjectsForUser(email);
       setProjects(loaded);
-      // On the first load after sign-in, reopen the project the user last had
-      // open if it's still one of theirs.
       if (isInitialLoad) {
         restoredSelectionRef.current = true;
         const storedId = readStoredProjectId();
         const stored = storedId
-          ? loaded.find((project) => project.id === storedId)
+          ? loaded.find((p) => p.id === storedId)
           : undefined;
         if (stored) {
           setSelectedProject(stored);
         } else if (storedId) {
-          // The stored project is gone (deleted or access revoked); drop it.
           storeSelectedProjectId(null);
         }
       }
@@ -89,43 +78,26 @@ export default function Home() {
       );
     } finally {
       setProjectsLoading(false);
-      // The restore decision is now made; reveal the resolved view.
-      if (isInitialLoad) {
-        setRestoringSelection(false);
-      }
+      if (isInitialLoad) setRestoringSelection(false);
     }
   }, []);
 
+  // React to sign-in / sign-out.
   useEffect(() => {
-    // The auth callback fires asynchronously when auth state resolves/changes,
-    // so it's the right place to kick off the per-user project load.
-    const unsubscribe = onAuthChange((nextUser) => {
-      setUser(nextUser);
-      setLoading(false);
-      if (nextUser?.email) {
-        // Record the email→uid mapping so a contributor (tracked by email) can
-        // be resolved to their uid later, e.g. to release their file locks when
-        // they're removed from a project. Best-effort; a failure (such as a race
-        // with sign-out) shouldn't block loading projects.
-        recordUserEmail(nextUser.uid, nextUser.email).catch(() => {});
-        loadProjects(nextUser.email);
-      } else {
-        setProjects([]);
-        // Forget the open project on sign-out and allow the next sign-in to
-        // restore its own last-opened project.
-        selectProject(null);
-        restoredSelectionRef.current = false;
-        // Spin again on the next sign-in while that user's projects load.
-        setRestoringSelection(true);
-        // Clear any previous name immediately on sign-out / account switch; the
-        // effect below loads the new one when a user is present.
-        setName(null);
-      }
-    });
-    return unsubscribe;
-  }, [loadProjects, selectProject]);
+    if (auth.isLoading) return;
+    if (user?.email) {
+      loadProjects(user.email);
+    } else if (!auth.isAuthenticated) {
+      setProjects([]);
+      selectProject(null);
+      restoredSelectionRef.current = false;
+      setRestoringSelection(true);
+      setName(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.isLoading, auth.isAuthenticated, user?.uid, user?.email]);
 
-  // Load the signed-in user's display name (null when they haven't set one).
+  // Load the signed-in user's display name.
   const refreshName = useCallback((currentUser: User) => {
     return getUserProfile(currentUser.uid).then((profile) => {
       const trimmed = profile?.name.trim();
@@ -134,35 +106,24 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
     let active = true;
     getUserProfile(user.uid)
       .then((profile) => {
-        if (!active) {
-          return;
+        if (active) {
+          const trimmed = profile?.name.trim();
+          setName(trimmed ? trimmed : null);
         }
-        const trimmed = profile?.name.trim();
-        setName(trimmed ? trimmed : null);
       })
-      .catch(() => {
-        // The read can be rejected if the user signs out while it is still in
-        // flight (the now-null auth fails the Firestore rules). That's expected
-        // during sign-out, so swallow it rather than surfacing an unhandled
-        // rejection; the auth listener has already cleared the name.
-      });
+      .catch(() => {});
     return () => {
       active = false;
     };
   }, [user]);
 
-  // While auth is resolving, or while a signed-in user's projects load for the
-  // first time (and we decide whether to reopen their last project), show a
-  // spinner. This resolves directly into either the project view or the project
-  // list, so neither flashes before the other. Placed after all hooks so the
-  // early returns never skip one.
-  if (loading || (user && restoringSelection)) {
+  // Show a spinner while OIDC is resolving or while the initial project load
+  // (and localStorage restore) is in flight.
+  if (auth.isLoading || (user && restoringSelection)) {
     return (
       <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
         <div
@@ -174,14 +135,15 @@ export default function Home() {
     );
   }
 
-  // Once a project is opened, the project view takes over the whole window.
   if (user && selectedProject) {
     return (
       <ProjectView
         project={selectedProject}
         authorName={name}
-        onBack={() => {selectProject(null); setSelectedProject(null);}}
-
+        onBack={() => {
+          selectProject(null);
+          setSelectedProject(null);
+        }}
         userId={user.uid}
         userEmail={user.email ?? ""}
       />
@@ -190,7 +152,7 @@ export default function Home() {
 
   return (
     <div className="relative flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      {!loading && user && (
+      {user && (
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
@@ -202,7 +164,7 @@ export default function Home() {
       )}
 
       <main className="flex w-full max-w-3xl flex-col items-center gap-8 px-16 py-32">
-        {loading ? null : user ? (
+        {user ? (
           <div className="flex w-full flex-col items-center gap-8">
             <div className="flex w-full flex-col items-center gap-6">
               <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
@@ -210,7 +172,7 @@ export default function Home() {
               </h1>
               <button
                 type="button"
-                onClick={() => logOut()}
+                onClick={() => void auth.removeUser()}
                 className="flex h-12 w-40 items-center justify-center rounded-full border border-solid border-black/[.08] px-5 text-base font-medium transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
               >
                 Log Out
@@ -263,17 +225,19 @@ export default function Home() {
             </section>
           </div>
         ) : (
+          // Both buttons redirect to Cognito's hosted UI where users can sign
+          // in with an existing account or sign up for a new one.
           <div className="flex flex-col gap-4 sm:flex-row">
             <button
               type="button"
-              onClick={() => setAuthMode("signup")}
+              onClick={() => void auth.signinRedirect()}
               className="flex h-12 w-40 items-center justify-center rounded-full bg-foreground px-5 text-base font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
             >
               Sign Up
             </button>
             <button
               type="button"
-              onClick={() => setAuthMode("login")}
+              onClick={() => void auth.signinRedirect()}
               className="flex h-12 w-40 items-center justify-center rounded-full border border-solid border-black/[.08] px-5 text-base font-medium transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
             >
               Log In
@@ -282,32 +246,11 @@ export default function Home() {
         )}
       </main>
 
-      {!loading && !user && (
-        <footer className="absolute bottom-6 left-0 right-0 flex justify-center">
-          <button
-            type="button"
-            onClick={() => setResettingPassword(true)}
-            className="text-sm font-medium text-zinc-500 underline-offset-4 transition-colors hover:text-black hover:underline dark:text-zinc-400 dark:hover:text-zinc-50"
-          >
-            Reset Password
-          </button>
-        </footer>
-      )}
-
-      {authMode && (
-        <AuthModal mode={authMode} onClose={() => setAuthMode(null)} />
-      )}
-
-      {resettingPassword && (
-        <ResetPasswordModal onClose={() => setResettingPassword(false)} />
-      )}
-
       {settingsOpen && user && (
         <SettingsModal
           user={user}
           onClose={() => {
             setSettingsOpen(false);
-            // Ignore a rejection here too (e.g. signing out as settings close).
             refreshName(user).catch(() => {});
           }}
         />
