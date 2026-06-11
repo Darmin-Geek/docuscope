@@ -9,8 +9,8 @@ import {
   fileLabels,
   fileFolders,
   information as informationTable,
-  users,
 } from './drizzle/schema';
+import { getUidForEmail } from './users.server';
 import type { Project, Folder, FileDoc, Label, Information, InformationFields } from './projects';
 
 const DEFAULT_LABELS = [
@@ -143,14 +143,10 @@ export async function addContributor(projectId: string, email: string): Promise<
 }
 
 export async function removeContributor(projectId: string, email: string): Promise<void> {
-  const [userRow] = await db
-    .select({ uid: users.uid })
-    .from(users)
-    .where(eq(users.email, email.trim().toLowerCase()))
-    .limit(1);
+  const uid = await getUidForEmail(email);
 
-  if (userRow) {
-    await releaseLocksHeldBy(projectId, userRow.uid);
+  if (uid) {
+    await releaseLocksHeldBy(projectId, uid);
   }
 
   await db

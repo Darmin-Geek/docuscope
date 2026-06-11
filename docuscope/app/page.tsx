@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "react-oidc-context";
 import type { User } from "@/lib/auth";
 import { getProjectsForUser, type Project } from "@/lib/projects";
-import { getUserProfile, recordUserEmail } from "@/lib/users";
+import { getUserProfile } from "@/lib/users";
 import SettingsModal from "./SettingsModal";
 import CreateProjectModal from "./CreateProjectModal";
 import ProjectView from "./ProjectView";
@@ -86,7 +86,6 @@ export default function Home() {
   useEffect(() => {
     if (auth.isLoading) return;
     if (user?.email) {
-      recordUserEmail(user.uid, user.email).catch(() => {});
       loadProjects(user.email);
     } else if (!auth.isAuthenticated) {
       setProjects([]);
