@@ -5,8 +5,14 @@ import {
   bigint,
   char,
   primaryKey,
+  customType,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+
+const tsvector = customType<{ data: string }>({
+  dataType() { return 'tsvector'; },
+});
 
 export const users = pgTable('users', {
   uid: text('uid').primaryKey(),
@@ -66,6 +72,26 @@ export const files = pgTable('files', {
   checkedOutBy: text('checked_out_by').references(() => users.uid, {
     onDelete: 'set null',
   }),
+
+  // Generated stored tsvector columns — one per searchable field.
+  filenameTsv: tsvector('filename_tsv').generatedAlwaysAs(
+    sql`to_tsvector('english', coalesce(filename, ''))`,
+  ),
+  authorTsv: tsvector('author_tsv').generatedAlwaysAs(
+    sql`to_tsvector('english', coalesce(author, ''))`,
+  ),
+  overallBiasTsv: tsvector('overall_bias_tsv').generatedAlwaysAs(
+    sql`to_tsvector('english', coalesce(overall_bias, ''))`,
+  ),
+  sourceTsv: tsvector('source_tsv').generatedAlwaysAs(
+    sql`to_tsvector('english', coalesce(source, ''))`,
+  ),
+  fileReliabilityTsv: tsvector('file_reliability_tsv').generatedAlwaysAs(
+    sql`to_tsvector('english', coalesce(file_reliability, ''))`,
+  ),
+  fileCredibilityTsv: tsvector('file_credibility_tsv').generatedAlwaysAs(
+    sql`to_tsvector('english', coalesce(file_credibility, ''))`,
+  ),
 });
 
 export const fileLabels = pgTable(
