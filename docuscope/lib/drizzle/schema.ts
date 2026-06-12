@@ -14,12 +14,6 @@ const tsvector = customType<{ data: string }>({
   dataType() { return 'tsvector'; },
 });
 
-export const users = pgTable('users', {
-  uid: text('uid').primaryKey(),
-  name: text('name').notNull().default(''),
-  email: text('email').notNull().unique(),
-});
-
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
   title: text('title').notNull(),
@@ -69,9 +63,7 @@ export const files = pgTable('files', {
   source: text('source'),
   fileReliability: text('file_reliability'),
   fileCredibility: text('file_credibility'),
-  checkedOutBy: text('checked_out_by').references(() => users.uid, {
-    onDelete: 'set null',
-  }),
+  checkedOutBy: text('checked_out_by'),
 
   // Generated stored tsvector columns — one per searchable field.
   filenameTsv: tsvector('filename_tsv').generatedAlwaysAs(

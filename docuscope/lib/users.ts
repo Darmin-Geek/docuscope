@@ -19,10 +19,3 @@ export async function setUserName(uid: string, name: string): Promise<void> {
     body: JSON.stringify({ name }),
   });
 }
-
-export async function recordUserEmail(uid: string, email: string): Promise<void> {
-  await api(`/api/users/${uid}`, {
-    method: 'PUT',
-    body: JSON.stringify({ email }),
-  });
-}

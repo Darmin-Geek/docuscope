@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/verifyAuth';
-import { getUserProfile, setUserName, recordUserEmail } from '@/lib/users.server';
+import { getUserProfile, setUserName } from '@/lib/users.server';
 import { apiError } from '@/lib/apiError';
 
 export async function GET(
@@ -26,9 +26,8 @@ export async function PUT(
     const { uid } = await params;
     if (authUid !== uid) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    const body = await request.json() as { name?: string; email?: string };
+    const body = await request.json() as { name?: string };
     if (body.name !== undefined) await setUserName(uid, body.name);
-    if (body.email !== undefined) await recordUserEmail(uid, body.email);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

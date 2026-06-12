@@ -143,7 +143,7 @@ export default function FileSidebar({
     setDownloading(true);
     setDownloadError(null);
     try {
-      const url = await getFileDownloadUrl(file.storageReference);
+      const url = await getFileDownloadUrl(projectId, file.id);
       const response = await fetch(url);
       if (!response.ok) throw new Error("Failed to download file.");
       const blob = await response.blob();
@@ -239,7 +239,7 @@ export default function FileSidebar({
   useEffect(() => {
     if (kind === "unsupported") return;
     let active = true;
-    getFileDownloadUrl(file.storageReference)
+    getFileDownloadUrl(projectId, file.id)
       .then((url) => {
         if (active) setPreviewUrl(url);
       })

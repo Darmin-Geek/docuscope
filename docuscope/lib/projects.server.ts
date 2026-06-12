@@ -9,8 +9,8 @@ import {
   fileLabels,
   fileFolders,
   information as informationTable,
-  users,
 } from './drizzle/schema';
+import { getUidForEmail } from './users.server';
 import type { Project, Folder, FileDoc, Label, Information, InformationFields } from './projects';
 
 const DEFAULT_LABELS = [
@@ -146,14 +146,10 @@ export async function addContributor(projectId: string, email: string): Promise<
 }
 
 export async function removeContributor(projectId: string, email: string): Promise<void> {
-  const [userRow] = await db
-    .select({ uid: users.uid })
-    .from(users)
-    .where(eq(users.email, email.trim().toLowerCase()))
-    .limit(1);
+  const uid = await getUidForEmail(email);
 
-  if (userRow) {
-    await releaseLocksHeldBy(projectId, userRow.uid);
+  if (uid) {
+    await releaseLocksHeldBy(projectId, uid);
   }
 
   await db
@@ -301,19 +297,24 @@ export async function getFiles(
 ): Promise<FileDoc[]> {
   const q = search.trim();
 
+  // When searching, scan all project files regardless of which folder is selected.
+  if (q) {
+    const rows = await db
+      .select({ ...getTableColumns(filesTable), folderId: fileFolders.folderId })
+      .from(filesTable)
+      .leftJoin(fileFolders, eq(filesTable.id, fileFolders.fileId))
+      .where(and(eq(filesTable.projectId, projectId), ftsCondition(q)));
+
+    return attachLabels(rows.map((r) => ({ ...r, folderId: r.folderId ?? null })));
+  }
+
   if (!folderId) {
     // Root files only: files that have no entry in file_folders.
-    const conditions = [
-      eq(filesTable.projectId, projectId),
-      isNull(fileFolders.fileId),
-    ];
-    if (q) conditions.push(ftsCondition(q));
-
     const rows = await db
       .select(getTableColumns(filesTable))
       .from(filesTable)
       .leftJoin(fileFolders, eq(filesTable.id, fileFolders.fileId))
-      .where(and(...conditions));
+      .where(and(eq(filesTable.projectId, projectId), isNull(fileFolders.fileId)));
 
     return attachLabels(rows.map((r) => ({ ...r, folderId: null })));
   }
@@ -327,16 +328,10 @@ export async function getFiles(
   if (folderFileRows.length === 0) return [];
 
   const fileIds = folderFileRows.map((r) => r.fileId);
-  const conditions = [
-    eq(filesTable.projectId, projectId),
-    inArray(filesTable.id, fileIds),
-  ];
-  if (q) conditions.push(ftsCondition(q));
-
   const rows = await db
     .select()
     .from(filesTable)
-    .where(and(...conditions));
+    .where(and(eq(filesTable.projectId, projectId), inArray(filesTable.id, fileIds)));
 
   return attachLabels(rows.map((r) => ({ ...r, folderId })));
 }
