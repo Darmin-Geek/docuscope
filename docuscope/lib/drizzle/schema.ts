@@ -69,23 +69,18 @@ export const files = pgTable('files', {
   // Generated stored tsvector columns — one per searchable metadata field.
   authorTsv: tsvector('author_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(author, ''))`,
-    { mode: 'stored' },
   ),
   overallBiasTsv: tsvector('overall_bias_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(overall_bias, ''))`,
-    { mode: 'stored' },
   ),
   sourceTsv: tsvector('source_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(source, ''))`,
-    { mode: 'stored' },
   ),
   fileReliabilityTsv: tsvector('file_reliability_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(file_reliability, ''))`,
-    { mode: 'stored' },
   ),
   fileCredibilityTsv: tsvector('file_credibility_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(file_credibility, ''))`,
-    { mode: 'stored' },
   ),
 },
 (t) => [

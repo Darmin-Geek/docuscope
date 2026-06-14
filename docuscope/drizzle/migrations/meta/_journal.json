@@ -8,6 +8,13 @@
       "when": 1781225018643,
       "tag": "0000_greedy_hellcat",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781478242501,
+      "tag": "0001_rare_cardiac",
+      "breakpoints": true
     }
   ]
 }
