@@ -6,6 +6,7 @@ import {
   char,
   primaryKey,
   customType,
+  index,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -65,26 +66,36 @@ export const files = pgTable('files', {
   fileCredibility: text('file_credibility'),
   checkedOutBy: text('checked_out_by'),
 
-  // Generated stored tsvector columns — one per searchable field.
-  filenameTsv: tsvector('filename_tsv').generatedAlwaysAs(
-    sql`to_tsvector('english', coalesce(filename, ''))`,
-  ),
+  // Generated stored tsvector columns — one per searchable metadata field.
   authorTsv: tsvector('author_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(author, ''))`,
+    { mode: 'stored' },
   ),
   overallBiasTsv: tsvector('overall_bias_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(overall_bias, ''))`,
+    { mode: 'stored' },
   ),
   sourceTsv: tsvector('source_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(source, ''))`,
+    { mode: 'stored' },
   ),
   fileReliabilityTsv: tsvector('file_reliability_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(file_reliability, ''))`,
+    { mode: 'stored' },
   ),
   fileCredibilityTsv: tsvector('file_credibility_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(file_credibility, ''))`,
+    { mode: 'stored' },
   ),
-});
+},
+(t) => [
+  // Separate GIN indexes — tsvector_ops only supports single-column GIN.
+  index('files_author_tsv_idx').using('gin', t.authorTsv),
+  index('files_overall_bias_tsv_idx').using('gin', t.overallBiasTsv),
+  index('files_source_tsv_idx').using('gin', t.sourceTsv),
+  index('files_file_reliability_tsv_idx').using('gin', t.fileReliabilityTsv),
+  index('files_file_credibility_tsv_idx').using('gin', t.fileCredibilityTsv),
+]);
 
 export const fileLabels = pgTable(
   'file_labels',

@@ -8,32 +8,6 @@ import { createTestProject, createTestFile, createTestFolder } from "./db-helper
 // These call getFiles() directly against the test database without a browser.
 
 test.describe("getFiles — full-text search", () => {
-  test("returns a root file whose filename matches the query", async () => {
-    const projectId = await createTestProject();
-    const matchId = await createTestFile(projectId, { filename: "climate-report.pdf" });
-    await createTestFile(projectId, { filename: "budget-2024.pdf" });
-
-    const results = await getFiles(projectId, null, "climate");
-
-    const ids = results.map((f) => f.id);
-    expect(ids).toContain(matchId);
-    expect(ids).not.toContain(
-      (await getFiles(projectId, null, "")).find((f) => f.filename === "budget-2024.pdf")?.id,
-    );
-  });
-
-  test("returns a file in a folder whose filename matches the query", async () => {
-    const projectId = await createTestProject();
-    const fileId = await createTestFile(projectId, { filename: "annual-review.pdf" });
-    const folderId = await createTestFolder(projectId, "Reports", [fileId]);
-
-    // Search with no folder filter.
-    const results = await getFiles(projectId, null, "annual");
-
-    expect(results.map((f) => f.id)).toContain(fileId);
-    expect(results.find((f) => f.id === fileId)?.folderId).toBe(folderId);
-  });
-
   test("matches on author field", async () => {
     const projectId = await createTestProject();
     const fileId = await createTestFile(projectId, {
@@ -64,7 +38,7 @@ test.describe("getFiles — full-text search", () => {
 
   test("returns no files when query matches nothing", async () => {
     const projectId = await createTestProject();
-    await createTestFile(projectId, { filename: "some-document.pdf" });
+    await createTestFile(projectId, { filename: "some-document.pdf", source: "Reuters" });
 
     const results = await getFiles(projectId, null, "xyzzy");
 
@@ -74,13 +48,19 @@ test.describe("getFiles — full-text search", () => {
   test("search ignores the folderId filter and spans all project folders", async () => {
     const projectId = await createTestProject();
 
-    const fileInA = await createTestFile(projectId, { filename: "needle.pdf" });
+    const fileInA = await createTestFile(projectId, {
+      filename: "a.pdf",
+      author: "needle author",
+    });
     const folderA = await createTestFolder(projectId, "Folder A", [fileInA]);
 
-    const fileInB = await createTestFile(projectId, { filename: "haystack.pdf" });
+    const fileInB = await createTestFile(projectId, {
+      filename: "b.pdf",
+      author: "haystack author",
+    });
     const folderB = await createTestFolder(projectId, "Folder B", [fileInB]);
 
-    // Searching from folderB's perspective must still find needle.pdf (in folderA).
+    // Searching from folderB's perspective must still find the file in folderA.
     const results = await getFiles(projectId, folderB, "needle");
 
     expect(results.map((f) => f.id)).toContain(fileInA);
@@ -91,8 +71,14 @@ test.describe("getFiles — full-text search", () => {
   test("search with no folder finds files across all folders", async () => {
     const projectId = await createTestProject();
 
-    const rootFile = await createTestFile(projectId, { filename: "rootneedle.pdf" });
-    const folderFile = await createTestFile(projectId, { filename: "folderneedle.pdf" });
+    const rootFile = await createTestFile(projectId, {
+      filename: "root.pdf",
+      source: "needle source",
+    });
+    const folderFile = await createTestFile(projectId, {
+      filename: "folder.pdf",
+      source: "needle source",
+    });
     const folderId = await createTestFolder(projectId, "Archive", [folderFile]);
 
     const results = await getFiles(projectId, null, "needle");
@@ -110,7 +96,7 @@ test.describe("getFiles — full-text search", () => {
     const fileA = await createTestFile(projectId, { filename: "alpha.pdf" });
     const folderId = await createTestFolder(projectId, "Folder A", [fileA]);
 
-    await createTestFile(projectId, { filename: "beta.pdf" }); // root file, different project scope
+    await createTestFile(projectId, { filename: "beta.pdf" });
 
     const results = await getFiles(projectId, folderId, "");
 
@@ -152,12 +138,24 @@ async function createFolder(page: Page, name: string): Promise<void> {
 async function uploadFile(page: Page, filePath: string): Promise<void> {
   const filename = path.basename(filePath);
   await page.locator("input[type='file']").setInputFiles(filePath);
-  await expect(page.getByText("Uploading…")).toBeHidden();
+  await expect(page.getByText("Uploading…")).toBeHidden({timeout:30000});
   await expect(page.getByRole("cell", { name: filename })).toBeVisible();
 }
 
+/** Click a file row to open its sidebar, set the Author field, and save. */
+async function setFileAuthor(page: Page, filename: string, author: string): Promise<void> {
+  await page.getByRole("cell", { name: filename }).click();
+  await page.getByLabel("Author").fill(author);
+  await Promise.all([
+    page.waitForResponse((r) =>
+      r.url().includes("/files/") && r.request().method() === "PATCH",
+    ),
+    page.keyboard.press("Enter"),
+  ]);
+}
+
 test.describe("Full-text search UI", () => {
-  test("typing in the search box shows matching files and hides non-matching ones", async ({
+  test("typing in the search box shows files matching metadata and hides others", async ({
     page,
   }) => {
     await signUpAndOpenProject(page, `search-basic-${Date.now()}@test.com`);
@@ -165,7 +163,10 @@ test.describe("Full-text search UI", () => {
     await uploadFile(page, SVG.file);    // file.svg
     await uploadFile(page, SVG.globe);   // globe.svg
 
-    await page.getByLabel("Search files").fill("file");
+    // Tag only file.svg with a distinctive author so the search matches it.
+    await setFileAuthor(page, "file.svg", "uniquefileauthor");
+
+    await page.getByLabel("Search files").fill("uniquefileauthor");
 
     await expect(page.getByRole("cell", { name: "file.svg" })).toBeVisible();
     await expect(page.locator("td").filter({ hasText: "globe.svg" })).toHaveCount(0);
@@ -188,8 +189,11 @@ test.describe("Full-text search UI", () => {
     await uploadFile(page, SVG.file);
     await uploadFile(page, SVG.globe);
 
+    // Tag only file.svg so the search term discriminates between the two files.
+    await setFileAuthor(page, "file.svg", "uniqueclearauthor");
+
     const searchBox = page.getByLabel("Search files");
-    await searchBox.fill("file");
+    await searchBox.fill("uniqueclearauthor");
     await expect(page.locator("td").filter({ hasText: "globe.svg" })).toHaveCount(0);
 
     // Clear the search — both files should reappear.
@@ -203,11 +207,12 @@ test.describe("Full-text search UI", () => {
   }) => {
     await signUpAndOpenProject(page, `search-cross-folder-${Date.now()}@test.com`);
 
-    // Upload window.svg into "Reports" folder.
+    // Upload window.svg into "Reports" folder and tag it with a distinctive author.
     const folderA = `Reports ${Date.now()}`;
     await createFolder(page, folderA);
     await page.getByRole("button", { name: folderA }).click();
     await uploadFile(page, SVG.window);
+    await setFileAuthor(page, "window.svg", "uniquecrossauthor");
 
     // Press Escape to deselect, then create "Media" folder and upload globe.svg into it.
     await page.keyboard.press("Escape");
@@ -216,9 +221,8 @@ test.describe("Full-text search UI", () => {
     await page.getByRole("button", { name: folderB }).click();
     await uploadFile(page, SVG.globe);
 
-    // "Media" folder is now selected. Search for "window" — must find the file
-    // from "Reports" even though that folder is not selected.
-    await page.getByLabel("Search files").fill("window");
+    // "Media" folder is now selected. Search must find window.svg (in "Reports").
+    await page.getByLabel("Search files").fill("uniquecrossauthor");
 
     await expect(page.getByRole("cell", { name: "window.svg" })).toBeVisible();
     await expect(page.locator("td").filter({ hasText: "globe.svg" })).toHaveCount(0);
@@ -233,8 +237,8 @@ test.describe("Full-text search UI", () => {
     await uploadFile(page, SVG.file);
 
     const searchBox = page.getByLabel("Search files");
-    await searchBox.fill("file");
-    await expect(searchBox).toHaveValue("file");
+    await searchBox.fill("xyzzy");
+    await expect(searchBox).toHaveValue("xyzzy");
 
     // Clicking a folder should reset the search input.
     await page.getByRole("button", { name: folderName }).click();

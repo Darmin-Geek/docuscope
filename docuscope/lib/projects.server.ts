@@ -281,7 +281,6 @@ export async function moveFile(
 
 function ftsCondition(q: string) {
   return sql`(
-    ${filesTable.filenameTsv} ||
     ${filesTable.authorTsv} ||
     ${filesTable.overallBiasTsv} ||
     ${filesTable.sourceTsv} ||
