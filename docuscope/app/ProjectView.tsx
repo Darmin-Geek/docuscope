@@ -63,6 +63,9 @@ export default function ProjectView({
   const [selectedLabelIds, setSelectedLabelIds] = useState<Set<string>>(
     new Set(),
   );
+  // Search state: the raw input value and a debounced copy used for API calls.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   // Load the project's labels once per project.
   useEffect(() => {
@@ -78,6 +81,14 @@ export default function ProjectView({
       active = false;
     };
   }, [project.id]);
+
+  // Debounce the search query so we only fire a server round-trip 300 ms after
+  // the user stops typing. Clearing the input snaps back immediately.
+  useEffect(() => {
+    if (!searchQuery) { setDebouncedSearch(''); return; }
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   // Plain click selects a single label (or clears it when it's the only one
   // selected); shift-click toggles the label within the current selection.
@@ -95,7 +106,7 @@ export default function ProjectView({
   }
 
   const loadFiles = useCallback(() => {
-    return getFiles(project.id, selectedFolderId)
+    return getFiles(project.id, selectedFolderId, debouncedSearch)
       .then((result) => {
         setFiles(result);
         setFilesError(null);
@@ -105,13 +116,14 @@ export default function ProjectView({
           err instanceof Error ? err.message : "Failed to load files.",
         );
       });
-  }, [project.id, selectedFolderId]);
+  }, [project.id, selectedFolderId, debouncedSearch]);
 
-  // Reload whenever the project or selected folder changes. The active guard
-  // discards a stale response that resolves after the deps have moved on.
+  // Reload whenever the project, selected folder, or debounced search changes.
+  // The active guard discards a stale response that resolves after the deps
+  // have moved on.
   useEffect(() => {
     let active = true;
-    getFiles(project.id, selectedFolderId)
+    getFiles(project.id, selectedFolderId, debouncedSearch)
       .then((result) => {
         if (!active) return;
         setFiles(result);
@@ -129,7 +141,7 @@ export default function ProjectView({
     return () => {
       active = false;
     };
-  }, [project.id, selectedFolderId]);
+  }, [project.id, selectedFolderId, debouncedSearch]);
 
   async function handleUpload(file: File) {
     await uploadFile(project.id, file, authorName, selectedFolderId);
@@ -202,7 +214,10 @@ export default function ProjectView({
         <FolderView
           projectId={project.id}
           selectedId={selectedFolderId}
-          onSelectChange={setSelectedFolderId}
+          onSelectChange={(folderId) => {
+            setSelectedFolderId(folderId);
+            setSearchQuery('');
+          }}
           onUpload={handleUpload}
           labels={labels}
           selectedLabelIds={selectedLabelIds}
@@ -219,6 +234,8 @@ export default function ProjectView({
               setSelectedFileId(file.id);
               setInformationOpen(false);
             }}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
           />
         </main>
         {selectedFile && informationOpen && (

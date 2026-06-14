@@ -12,19 +12,29 @@ export async function createTestProject(title = 'Test Project'): Promise<string>
 }
 
 /** Create a minimal file record without uploading to Storage. Returns the file id. */
-export async function createTestFile(projectId: string): Promise<string> {
+export async function createTestFile(
+  projectId: string,
+  options: {
+    filename?: string;
+    author?: string | null;
+    source?: string | null;
+    overallBias?: string | null;
+    fileReliability?: string | null;
+    fileCredibility?: string | null;
+  } = {},
+): Promise<string> {
   const [row] = await db
     .insert(files)
     .values({
       projectId,
-      filename: 'test.pdf',
+      filename: options.filename ?? 'test.pdf',
       storageReference: '',
-      author: null,
+      author: options.author ?? null,
       createdDate: null,
-      overallBias: null,
-      source: null,
-      fileReliability: null,
-      fileCredibility: null,
+      overallBias: options.overallBias ?? null,
+      source: options.source ?? null,
+      fileReliability: options.fileReliability ?? null,
+      fileCredibility: options.fileCredibility ?? null,
       checkedOutBy: null,
     })
     .returning({ id: files.id });

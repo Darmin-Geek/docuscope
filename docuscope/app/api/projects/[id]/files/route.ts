@@ -17,7 +17,8 @@ export async function GET(
     const { id } = await params;
     await requireContributor(id, email);
     const folderId = request.nextUrl.searchParams.get('folderId');
-    const data = await getFiles(id, folderId ?? null);
+    const search = request.nextUrl.searchParams.get('q') ?? '';
+    const data = await getFiles(id, folderId ?? null, search);
     return NextResponse.json(data);
   } catch (err) {
     return apiError(err);

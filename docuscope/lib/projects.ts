@@ -33,6 +33,7 @@ export type FileDoc = {
   fileCredibility: string | null;
   checkedOutBy: string | null;
   labels: string[];
+  folderId: string | null;
 };
 
 export type Information = {
@@ -131,8 +132,12 @@ export async function moveFile(
 export async function getFiles(
   projectId: string,
   folderId: string | null = null,
+  search: string = '',
 ): Promise<FileDoc[]> {
-  const qs = folderId ? `?folderId=${folderId}` : '';
+  const params = new URLSearchParams();
+  if (folderId) params.set('folderId', folderId);
+  if (search.trim()) params.set('q', search.trim());
+  const qs = params.size ? `?${params}` : '';
   return api<FileDoc[]>(`/api/projects/${projectId}/files${qs}`);
 }
 

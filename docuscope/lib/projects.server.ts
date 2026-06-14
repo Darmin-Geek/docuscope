@@ -1,5 +1,5 @@
 import { db } from './drizzle/db';
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, inArray, isNull, getTableColumns, sql } from 'drizzle-orm';
 import {
   projects,
   projectContributors,
@@ -22,7 +22,9 @@ const DEFAULT_LABELS = [
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-async function attachLabels(rows: (typeof filesTable.$inferSelect)[]): Promise<FileDoc[]> {
+type FileRow = typeof filesTable.$inferSelect & { folderId: string | null };
+
+async function attachLabels(rows: FileRow[]): Promise<FileDoc[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const labelRows = await db
@@ -47,6 +49,7 @@ async function attachLabels(rows: (typeof filesTable.$inferSelect)[]): Promise<F
     fileCredibility: r.fileCredibility,
     checkedOutBy: r.checkedOutBy,
     labels: map.get(r.id) ?? [],
+    folderId: r.folderId,
   }));
 }
 
@@ -276,16 +279,43 @@ export async function moveFile(
 
 // ── files ────────────────────────────────────────────────────────────────────
 
+function ftsCondition(q: string) {
+  return sql`(
+    ${filesTable.authorTsv} ||
+    ${filesTable.overallBiasTsv} ||
+    ${filesTable.sourceTsv} ||
+    ${filesTable.fileReliabilityTsv} ||
+    ${filesTable.fileCredibilityTsv}
+  ) @@ plainto_tsquery('english', ${q})`;
+}
+
 export async function getFiles(
   projectId: string,
   folderId: string | null = null,
+  search: string = '',
 ): Promise<FileDoc[]> {
-  if (!folderId) {
+  const q = search.trim();
+
+  // When searching, scan all project files regardless of which folder is selected.
+  if (q) {
     const rows = await db
-      .select()
+      .select({ ...getTableColumns(filesTable), folderId: fileFolders.folderId })
       .from(filesTable)
-      .where(eq(filesTable.projectId, projectId));
-    return attachLabels(rows);
+      .leftJoin(fileFolders, eq(filesTable.id, fileFolders.fileId))
+      .where(and(eq(filesTable.projectId, projectId), ftsCondition(q)));
+
+    return attachLabels(rows.map((r) => ({ ...r, folderId: r.folderId ?? null })));
+  }
+
+  if (!folderId) {
+    // Root files only: files that have no entry in file_folders.
+    const rows = await db
+      .select(getTableColumns(filesTable))
+      .from(filesTable)
+      .leftJoin(fileFolders, eq(filesTable.id, fileFolders.fileId))
+      .where(and(eq(filesTable.projectId, projectId), isNull(fileFolders.fileId)));
+
+    return attachLabels(rows.map((r) => ({ ...r, folderId: null })));
   }
 
   // Files in a specific folder via file_folders join.
@@ -300,13 +330,9 @@ export async function getFiles(
   const rows = await db
     .select()
     .from(filesTable)
-    .where(
-      and(
-        eq(filesTable.projectId, projectId),
-        inArray(filesTable.id, fileIds),
-      ),
-    );
-  return attachLabels(rows);
+    .where(and(eq(filesTable.projectId, projectId), inArray(filesTable.id, fileIds)));
+
+  return attachLabels(rows.map((r) => ({ ...r, folderId })));
 }
 
 export async function getFile(projectId: string, fileId: string): Promise<FileDoc> {
@@ -316,7 +342,14 @@ export async function getFile(projectId: string, fileId: string): Promise<FileDo
     .where(and(eq(filesTable.id, fileId), eq(filesTable.projectId, projectId)))
     .limit(1);
   if (!row) throw new Error('Not found');
-  const [doc] = await attachLabels([row]);
+
+  const [folderRow] = await db
+    .select({ folderId: fileFolders.folderId })
+    .from(fileFolders)
+    .where(eq(fileFolders.fileId, fileId))
+    .limit(1);
+
+  const [doc] = await attachLabels([{ ...row, folderId: folderRow?.folderId ?? null }]);
   return doc;
 }
 
@@ -359,6 +392,7 @@ export async function createFileRecord(
     fileCredibility: null,
     checkedOutBy: null,
     labels: [],
+    folderId: folderId,
   };
 }
 
