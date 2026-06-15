@@ -3,6 +3,7 @@ import {
   text,
   uuid,
   bigint,
+  integer,
   char,
   primaryKey,
   customType,
@@ -91,6 +92,28 @@ export const files = pgTable('files', {
   index('files_file_reliability_tsv_idx').using('gin', t.fileReliabilityTsv),
   index('files_file_credibility_tsv_idx').using('gin', t.fileCredibilityTsv),
 ]);
+
+// Chunks of a file's extracted text (e.g. PDF body). Each chunk carries a
+// generated tsvector so chunk content is full-text searchable alongside file
+// metadata. Chunks are produced by the server when a file record is created.
+export const fileChunks = pgTable(
+  'file_chunks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    chunkIndex: integer('chunk_index').notNull(),
+    content: text('content').notNull(),
+    contentTsv: tsvector('content_tsv').generatedAlwaysAs(
+      sql`to_tsvector('english', content)`,
+    ),
+  },
+  (t) => [
+    index('file_chunks_content_tsv_idx').using('gin', t.contentTsv),
+    index('file_chunks_file_id_idx').on(t.fileId),
+  ],
+);
 
 export const fileLabels = pgTable(
   'file_labels',
