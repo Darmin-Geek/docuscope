@@ -38,6 +38,7 @@ export async function POST(
       storageReference: string;
       author: string | null;
       folderId: string | null;
+      text?: string | null;
     };
     const file = await createFileRecord(
       id,
@@ -45,6 +46,7 @@ export async function POST(
       body.storageReference,
       body.author ?? null,
       body.folderId ?? null,
+      body.text ?? null,
     );
     return NextResponse.json(file);
   } catch (err) {

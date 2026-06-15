@@ -15,6 +15,13 @@
       "when": 1781478242501,
       "tag": "0001_rare_cardiac",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781487609542,
+      "tag": "0002_freezing_blizzard",
+      "breakpoints": true
     }
   ]
 }
