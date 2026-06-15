@@ -28,6 +28,11 @@ type InformationSidebarProps = {
   // file out, which blocks other contributors from the file details too, and a
   // detail edit elsewhere likewise greys these fields out (see useFileLock).
   lock: FileLock;
+  // Whether this file can be opened in the embedded PDF viewer (PDFs only).
+  canOpenPdf: boolean;
+  // Opens the PDF viewer with the given information made active, scrolled to its
+  // first selection.
+  onOpenPdfViewer: (informationId: string) => void;
   onClose: () => void;
 };
 
@@ -42,6 +47,8 @@ export default function InformationSidebar({
   projectId,
   file,
   lock,
+  canOpenPdf,
+  onOpenPdfViewer,
   onClose,
 }: InformationSidebarProps) {
   const { lockedByOther, editorName } = lock;
@@ -337,6 +344,15 @@ export default function InformationSidebar({
         {/* Bottom two-thirds: the editor for the selected/new entry. */}
         {editorOpen && (
           <div className="flex min-h-0 basis-2/3 flex-col gap-3 overflow-y-auto border-t border-black/[.08] p-4 dark:border-white/[.145]">
+            {canOpenPdf && selectedItem && (
+              <button
+                type="button"
+                onClick={() => onOpenPdfViewer(selectedItem.id)}
+                className="flex h-8 items-center justify-center rounded-md border border-black/[.08] text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+              >
+                Open in PDF viewer
+              </button>
+            )}
             <div
               className="flex flex-col gap-3"
               onFocus={claimLock}

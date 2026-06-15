@@ -14,7 +14,13 @@ import FilesTable from "./FilesTable";
 import FileSidebar from "./FileSidebar";
 import InformationSidebar from "./InformationSidebar";
 import ProjectSettingsModal from "./ProjectSettingsModal";
+import PdfViewerModal from "./PdfViewerModal";
 import { useFileLock } from "./useFileLock";
+
+// Whether a file can be opened in the embedded PDF viewer (issue #64 is PDF-only).
+function isPdf(filename: string): boolean {
+  return filename.toLowerCase().endsWith(".pdf");
+}
 
 type ProjectViewProps = {
   project: Project;
@@ -48,6 +54,10 @@ export default function ProjectView({
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   // Whether the information sidebar is open alongside the file detail sidebar.
   const [informationOpen, setInformationOpen] = useState(false);
+  // The embedded PDF viewer modal: open flag plus the information made active on
+  // open (null when opened from the Preview button with nothing selected).
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
+  const [pdfViewerInfoId, setPdfViewerInfoId] = useState<string | null>(null);
 
   // The project's labels, plus the editable title and settings modal state.
   // Title is held locally so a rename in settings updates the header at once.
@@ -246,6 +256,11 @@ export default function ProjectView({
             projectId={project.id}
             file={selectedFile}
             lock={lock}
+            canOpenPdf={isPdf(selectedFile.filename)}
+            onOpenPdfViewer={(infoId) => {
+              setPdfViewerInfoId(infoId);
+              setPdfViewerOpen(true);
+            }}
             onClose={() => setInformationOpen(false)}
           />
         )}
@@ -258,6 +273,10 @@ export default function ProjectView({
             labels={labels}
             lock={lock}
             onOpenInformation={() => setInformationOpen(true)}
+            onOpenPdfViewer={() => {
+              setPdfViewerInfoId(null);
+              setPdfViewerOpen(true);
+            }}
             onClose={() => {
               setSelectedFileId(null);
               setInformationOpen(false);
@@ -268,6 +287,17 @@ export default function ProjectView({
           />
         )}
       </div>
+
+      {pdfViewerOpen && selectedFile && isPdf(selectedFile.filename) && (
+        <PdfViewerModal
+          key={`pdf-${selectedFile.id}`}
+          projectId={project.id}
+          file={selectedFile}
+          lock={lock}
+          initialInformationId={pdfViewerInfoId}
+          onClose={() => setPdfViewerOpen(false)}
+        />
+      )}
 
       {settingsOpen && (
         <ProjectSettingsModal

@@ -9,9 +9,19 @@ import {
   fileLabels,
   fileFolders,
   information as informationTable,
+  informationSelections as selectionsTable,
 } from './drizzle/schema';
 import { getUidForEmail } from './users.server';
-import type { Project, Folder, FileDoc, Label, Information, InformationFields } from './projects';
+import type {
+  Project,
+  Folder,
+  FileDoc,
+  Label,
+  Information,
+  InformationFields,
+  Selection,
+  SelectionFields,
+} from './projects';
 
 const DEFAULT_LABELS = [
   { label: 'Not started', color: '#9ca3af' },
@@ -516,6 +526,89 @@ export async function deleteInformation(
       and(
         eq(informationTable.id, informationId),
         eq(informationTable.fileId, fileId),
+      ),
+    );
+}
+
+// ── selections ─────────────────────────────────────────────────────────────────
+
+// Confirm the information row exists, belongs to the given file, and that file
+// belongs to the given project. Throws 'Not found' otherwise so callers never
+// touch selections through a mismatched project/file/information path.
+async function requireInformation(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+): Promise<void> {
+  const [row] = await db
+    .select({ id: informationTable.id })
+    .from(informationTable)
+    .innerJoin(filesTable, eq(informationTable.fileId, filesTable.id))
+    .where(
+      and(
+        eq(informationTable.id, informationId),
+        eq(informationTable.fileId, fileId),
+        eq(filesTable.projectId, projectId),
+      ),
+    )
+    .limit(1);
+  if (!row) throw new Error('Not found');
+}
+
+export async function getSelections(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+): Promise<Selection[]> {
+  await requireInformation(projectId, fileId, informationId);
+  // Ordered by location in the document — page first, then top-to-bottom and
+  // left-to-right — which is the order the viewer's previous/next steps through.
+  const rows = await db
+    .select()
+    .from(selectionsTable)
+    .where(eq(selectionsTable.informationId, informationId))
+    .orderBy(
+      selectionsTable.pageIndex,
+      selectionsTable.boundingTop,
+      selectionsTable.boundingLeft,
+    );
+  return rows.map((r) => ({
+    id: r.id,
+    pageIndex: r.pageIndex,
+    boundingTop: r.boundingTop,
+    boundingLeft: r.boundingLeft,
+    rects: r.rects,
+    text: r.text,
+  }));
+}
+
+export async function addSelection(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  fields: SelectionFields,
+): Promise<string> {
+  await requireInformation(projectId, fileId, informationId);
+  const [row] = await db
+    .insert(selectionsTable)
+    .values({ informationId, ...fields })
+    .returning({ id: selectionsTable.id });
+  return row.id;
+}
+
+export async function deleteSelection(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  selectionId: string,
+): Promise<void> {
+  await requireInformation(projectId, fileId, informationId);
+  await db
+    .delete(selectionsTable)
+    .where(
+      and(
+        eq(selectionsTable.id, selectionId),
+        eq(selectionsTable.informationId, informationId),
       ),
     );
 }

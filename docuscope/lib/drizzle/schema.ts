@@ -4,6 +4,9 @@ import {
   uuid,
   bigint,
   char,
+  integer,
+  doublePrecision,
+  jsonb,
   primaryKey,
   customType,
   index,
@@ -128,4 +131,31 @@ export const information = pgTable('information', {
   overallBias: text('overall_bias'),
   informationReliability: text('information_reliability'),
   informationCredibility: text('information_credibility'),
+});
+
+// A flat highlight rectangle in PDF page coordinates (points, unscaled). The
+// PDF viewer scales these by the current zoom when drawing the highlight.
+export type SelectionRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+// A passage of a file's PDF that a piece of information is "based on". A piece
+// of information can have 0..N selections (see issue #64). `pageIndex` plus the
+// bounding rect's top-left are stored as plain columns so selections can be
+// ordered by their location in the document (page, then top-to-bottom), which
+// is how the viewer's previous/next controls step through them. `rects` holds
+// the per-line segment rectangles used to draw the highlight.
+export const informationSelections = pgTable('information_selections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  informationId: uuid('information_id')
+    .notNull()
+    .references(() => information.id, { onDelete: 'cascade' }),
+  pageIndex: integer('page_index').notNull(),
+  boundingTop: doublePrecision('bounding_top').notNull(),
+  boundingLeft: doublePrecision('bounding_left').notNull(),
+  rects: jsonb('rects').$type<SelectionRect[]>().notNull(),
+  text: text('text').notNull().default(''),
 });
