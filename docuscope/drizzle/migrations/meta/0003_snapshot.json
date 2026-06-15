@@ -1,6 +1,6 @@
 {
-  "id": "74a30942-f41d-4515-8ee7-8d0ba2310aeb",
-  "prevId": "44500b85-1d0e-4860-a0fe-477d975409e5",
+  "id": "8ed5c9b6-05fe-4b73-8d58-31a21688110d",
+  "prevId": "74a30942-f41d-4515-8ee7-8d0ba2310aeb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -560,6 +560,77 @@
           "tableTo": "files",
           "columnsFrom": [
             "file_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.information_selections": {
+      "name": "information_selections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "information_id": {
+          "name": "information_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "page_index": {
+          "name": "page_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bounding_top": {
+          "name": "bounding_top",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bounding_left": {
+          "name": "bounding_left",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rects": {
+          "name": "rects",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "information_selections_information_id_information_id_fk": {
+          "name": "information_selections_information_id_information_id_fk",
+          "tableFrom": "information_selections",
+          "tableTo": "information",
+          "columnsFrom": [
+            "information_id"
           ],
           "columnsTo": [
             "id"

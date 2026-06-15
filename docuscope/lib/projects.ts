@@ -1,4 +1,5 @@
 import { api } from './apiClient';
+import { isPdf, extractPdfText } from './pdfText';
 
 // All data access for projects goes through these functions so UI components
 // never call the API directly (mirrors the old Firebase design principle).
@@ -169,10 +170,13 @@ export async function getFile(projectId: string, fileId: string): Promise<FileDo
 }
 
 /**
- * Two-step upload:
+ * Upload flow:
  * 1. Request a pre-signed S3 PUT URL from the server.
- * 2. PUT the file bytes directly to S3.
- * 3. Create the DB record via POST /files.
+ * 2. In parallel: PUT the file bytes to S3, and (for PDFs) extract the text in
+ *    the browser. The S3 upload and text extraction run concurrently since
+ *    neither depends on the other.
+ * 3. Create the DB record via POST /files, sending the extracted text so the
+ *    server can chunk and index it.
  */
 export async function uploadFile(
   projectId: string,
@@ -188,16 +192,25 @@ export async function uploadFile(
     },
   );
 
-  const uploadRes = await fetch(url, {
+  const upload = fetch(url, {
     method: 'PUT',
     body: file,
     headers: { 'Content-Type': file.type },
+  }).then((res) => {
+    if (!res.ok) throw new Error('Failed to upload file to storage.');
   });
-  if (!uploadRes.ok) throw new Error('Failed to upload file to storage.');
+
+  // Text extraction failure (e.g. a corrupt or image-only PDF) must not block
+  // the upload — the file is still stored, just without searchable chunks.
+  const extract = isPdf(file)
+    ? extractPdfText(file).catch(() => null)
+    : Promise.resolve(null);
+
+  const [, text] = await Promise.all([upload, extract]);
 
   return api<FileDoc>(`/api/projects/${projectId}/files`, {
     method: 'POST',
-    body: JSON.stringify({ filename: file.name, storageReference: key, author, folderId }),
+    body: JSON.stringify({ filename: file.name, storageReference: key, author, folderId, text }),
   });
 }
 

@@ -1,8 +1,43 @@
 import { test, expect, type Page } from "@playwright/test";
 import path from "path";
-import { getFiles } from "../lib/projects.server";
+import { getFiles, chunkText } from "../lib/projects.server";
 import { injectOidcUser } from "./helpers";
-import { createTestProject, createTestFile, createTestFolder } from "./db-helpers";
+import {
+  createTestProject,
+  createTestFile,
+  createTestFolder,
+  insertChunks,
+} from "./db-helpers";
+
+// ── chunkText unit tests ──────────────────────────────────────────────────────
+
+test.describe("chunkText", () => {
+  test("returns no chunks for blank input", () => {
+    expect(chunkText("")).toEqual([]);
+    expect(chunkText("   \n\t ")).toEqual([]);
+  });
+
+  test("returns a single chunk for text shorter than the chunk size", () => {
+    const text = "the quick brown fox jumps over the lazy dog";
+    expect(chunkText(text)).toEqual([text]);
+  });
+
+  test("splits long text into overlapping chunks (default 1000/100 words)", () => {
+    // 1500 distinct words → two chunks: [0,1000) and [900,1500).
+    const words = Array.from({ length: 1500 }, (_, i) => `w${i}`);
+    const chunks = chunkText(words.join(" "));
+
+    expect(chunks).toHaveLength(2);
+
+    const first = chunks[0].split(" ");
+    const second = chunks[1].split(" ");
+    expect(first).toHaveLength(1000);
+    expect(second).toHaveLength(600);
+
+    // The trailing 100 words of chunk 0 are the leading 100 words of chunk 1.
+    expect(first.slice(-100)).toEqual(second.slice(0, 100));
+  });
+});
 
 // ── Server-side unit tests ────────────────────────────────────────────────────
 // These call getFiles() directly against the test database without a browser.
@@ -90,6 +125,34 @@ test.describe("getFiles — full-text search", () => {
     expect(results.find((f) => f.id === folderFile)?.folderId).toBe(folderId);
   });
 
+  test("matches on PDF chunk content, not just metadata", async () => {
+    const projectId = await createTestProject();
+    const fileId = await createTestFile(projectId, { filename: "report.pdf" });
+    await insertChunks(fileId, [
+      "The committee discussed photosynthesis in marine phytoplankton at length.",
+    ]);
+
+    await createTestFile(projectId, { filename: "other.pdf" });
+
+    const results = await getFiles(projectId, null, "phytoplankton");
+
+    expect(results.map((f) => f.id)).toContain(fileId);
+    expect(results).toHaveLength(1);
+  });
+
+  test("surfaces a file once even when multiple chunks match", async () => {
+    const projectId = await createTestProject();
+    const fileId = await createTestFile(projectId, { filename: "long.pdf" });
+    await insertChunks(fileId, [
+      "alpha beta gravitational waves were detected",
+      "later sections revisit gravitational waves in detail",
+    ]);
+
+    const results = await getFiles(projectId, null, "gravitational");
+
+    expect(results.map((f) => f.id)).toEqual([fileId]);
+  });
+
   test("empty query with a folder selected returns only that folder's files", async () => {
     const projectId = await createTestProject();
 
@@ -114,6 +177,8 @@ const SVG = {
   window: path.join(PUBLIC, "window.svg"),
   next: path.join(PUBLIC, "next.svg"),
 };
+// A small PDF whose body text contains the word "phytoplankton".
+const PDF_FIXTURE = path.join(__dirname, "fixtures", "sample.pdf");
 
 async function signUpAndOpenProject(page: Page, email: string): Promise<void> {
   const uid = `uid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -170,6 +235,18 @@ test.describe("Full-text search UI", () => {
 
     await expect(page.getByRole("cell", { name: "file.svg" })).toBeVisible();
     await expect(page.locator("td").filter({ hasText: "globe.svg" })).toHaveCount(0);
+  });
+
+  test("a PDF's extracted body text is searchable", async ({ page }) => {
+    await signUpAndOpenProject(page, `search-pdf-${Date.now()}@test.com`);
+
+    await uploadFile(page, PDF_FIXTURE); // sample.pdf — body contains "phytoplankton"
+
+    // The word never appears in the filename or any metadata field, so a hit
+    // can only come from the indexed chunk content.
+    await page.getByLabel("Search files").fill("phytoplankton");
+
+    await expect(page.getByRole("cell", { name: "sample.pdf" })).toBeVisible();
   });
 
   test("shows the no-results message when nothing matches", async ({ page }) => {
