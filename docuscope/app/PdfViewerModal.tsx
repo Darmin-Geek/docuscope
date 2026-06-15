@@ -130,7 +130,11 @@ export default function PdfViewerModal({
       aria-modal="true"
       aria-label={`PDF viewer for ${file.filename}`}
     >
-      <div className="m-4 flex flex-1 overflow-hidden rounded-lg bg-zinc-50 shadow-2xl dark:bg-black">
+      {/* min-h-0 keeps this flex row from inflating to its content height so the
+          definite height of the fixed overlay propagates down to the viewport;
+          without it the EmbedPDF Viewport (which sizes itself to height:100% of
+          its parent) resolves to 0 and renders a blank, scrollable page. */}
+      <div className="m-4 flex min-h-0 flex-1 overflow-hidden rounded-lg bg-zinc-50 shadow-2xl dark:bg-black">
         {(engineError || loadError) ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
             <p className="text-sm text-red-600 dark:text-red-400">
@@ -440,8 +444,9 @@ function ViewerBody({
         </div>
       </aside>
 
-      {/* Right: the PDF viewer. */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Right: the PDF viewer. min-h-0 lets this column shrink to the row's
+          height so the viewport below gets a real (non-zero) height to fill. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-2 border-b border-black/[.08] px-4 py-3 dark:border-white/[.145]">
           <h2
             className="min-w-0 truncate text-sm font-semibold text-black dark:text-zinc-50"
@@ -459,10 +464,17 @@ function ViewerBody({
           </button>
         </header>
 
-        <Viewport
-          documentId={DOC_ID}
-          className="min-h-0 flex-1 overflow-auto bg-zinc-200 dark:bg-zinc-800"
-        >
+        {/* This wrapper is the remaining space below the header and owns a
+            definite height (flex-1 + min-h-0). The Viewport sizes itself to
+            height:100% of its parent, so it must fill a parent with a real
+            height — anchoring it to this wrapper (rather than the whole column,
+            which also holds the header) is what makes the pages render instead
+            of collapsing to a blank, scrollable area. */}
+        <div className="relative min-h-0 flex-1">
+          <Viewport
+            documentId={DOC_ID}
+            className="h-full w-full overflow-auto bg-zinc-200 dark:bg-zinc-800"
+          >
           <Scroller
             documentId={DOC_ID}
             renderPage={(layout: PageLayout) => (
@@ -478,7 +490,22 @@ function ViewerBody({
                 <RenderLayer
                   documentId={DOC_ID}
                   pageIndex={layout.pageIndex}
-                  style={{ position: "absolute", inset: 0 }}
+                  // The page bitmap is a real <img>, which browsers make
+                  // draggable by default — a click-drag to select text would
+                  // otherwise also start a native image drag (a ghost
+                  // thumbnail trailing the cursor). Disable it on the element
+                  // (draggable={false}) and via CSS (WebkitUserDrag) so the
+                  // gesture only selects text; selection still works as the
+                  // SelectionLayer sits above this.
+                  draggable={false}
+                  style={
+                    {
+                      position: "absolute",
+                      inset: 0,
+                      userSelect: "none",
+                      WebkitUserDrag: "none",
+                    } as React.CSSProperties
+                  }
                 />
                 <SelectionLayer documentId={DOC_ID} pageIndex={layout.pageIndex} />
                 <StoredHighlights
@@ -489,7 +516,8 @@ function ViewerBody({
               </PagePointerProvider>
             )}
           />
-        </Viewport>
+          </Viewport>
+        </div>
       </div>
     </>
   );
