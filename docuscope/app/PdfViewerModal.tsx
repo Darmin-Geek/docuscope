@@ -28,13 +28,12 @@ import {
   addSelection,
   deleteSelection,
   getFileDownloadUrl,
-  getInformation,
   getSelections,
   type FileDoc,
-  type Information,
   type Selection,
 } from "@/lib/projects";
 import type { FileLock } from "./useFileLock";
+import InformationSidebar from "./InformationSidebar";
 
 // Each modal instance hosts a single EmbedPDF document; a constant id is fine.
 const DOC_ID = "doc";
@@ -185,9 +184,9 @@ function ViewerBody({
   const selectionApi = useSelectionCapability().provides;
   const scrollApi = useScrollCapability().provides;
 
-  // The information items shown in the left sidebar, and the one currently
-  // active for marking / navigation.
-  const [items, setItems] = useState<Information[]>([]);
+  // The information entry currently selected in the embedded InformationSidebar
+  // is the active one for marking selections, drawing highlights and prev/next
+  // navigation. The sidebar reports it via onSelectedIdChange.
   const [activeId, setActiveId] = useState<string | null>(initialInformationId);
 
   // The active information's selections, ordered by document location, plus the
@@ -225,12 +224,6 @@ function ViewerBody({
     lock.acquire();
     return true;
   }
-
-  useEffect(() => {
-    getInformation(projectId, file.id)
-      .then(setItems)
-      .catch(() => setError("Failed to load information."));
-  }, [projectId, file.id]);
 
   const refreshSelections = useCallback(
     (infoId: string) =>
@@ -341,108 +334,22 @@ function ViewerBody({
 
   return (
     <>
-      {/* Left: information sidebar. */}
-      <aside className="flex w-72 shrink-0 flex-col border-r border-black/[.08] dark:border-white/[.145]">
-        <header className="border-b border-black/[.08] p-4 dark:border-white/[.145]">
-          <h2 className="text-sm font-semibold text-black dark:text-zinc-50">
-            Information
-          </h2>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Select text in the PDF, pick an item, then “Mark selection”.
-          </p>
-        </header>
-
-        {lockedByOther && (
-          <div
-            role="status"
-            className="m-3 mb-0 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
-          >
-            {`${editorName ?? "Another user"} is editing this file, so selections can't be changed right now.`}
-          </div>
-        )}
-
-        <ul className="min-h-0 flex-1 overflow-y-auto p-2">
-          {items.length === 0 ? (
-            <li className="px-2 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-              No information yet.
-            </li>
-          ) : (
-            items.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => setActiveId(item.id)}
-                  className={`w-full truncate rounded-md px-2 py-1.5 text-left text-xs ${
-                    item.id === activeId
-                      ? "bg-black/[.06] font-medium text-black dark:bg-white/[.08] dark:text-zinc-50"
-                      : "text-zinc-700 hover:bg-black/[.04] dark:text-zinc-300 dark:hover:bg-white/[.06]"
-                  }`}
-                  title={item.informationTitle || "Untitled"}
-                >
-                  {item.informationTitle || "Untitled"}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-
-        {/* Marking + navigation controls for the active item. */}
-        <div className="flex flex-col gap-2 border-t border-black/[.08] p-3 dark:border-white/[.145]">
-          <button
-            type="button"
-            onClick={() => void handleMark()}
-            disabled={
-              activeId == null || !hasLiveSelection || lockedByOther || busy
-            }
-            className="flex h-8 items-center justify-center rounded-md bg-black text-xs font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Mark selection
-          </button>
-
-          {activeId != null && (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => step(-1)}
-                  disabled={selections.length === 0}
-                  aria-label="Previous selection"
-                  className="flex h-7 flex-1 items-center justify-center rounded-md border border-black/[.08] text-xs transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[.145] dark:hover:bg-white/[.06]"
-                >
-                  ← Prev
-                </button>
-                <span className="shrink-0 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
-                  {selections.length === 0
-                    ? "0 / 0"
-                    : `${currentIndex + 1} / ${selections.length}`}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => step(1)}
-                  disabled={selections.length === 0}
-                  aria-label="Next selection"
-                  className="flex h-7 flex-1 items-center justify-center rounded-md border border-black/[.08] text-xs transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[.145] dark:hover:bg-white/[.06]"
-                >
-                  Next →
-                </button>
-              </div>
-              {currentSelection && (
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteSelection(currentSelection.id)}
-                  disabled={lockedByOther || busy}
-                  className="h-7 rounded-md border border-black/[.08] text-xs text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[.145] dark:text-red-400 dark:hover:bg-red-500/10"
-                >
-                  Delete current selection
-                </button>
-              )}
-            </div>
-          )}
-          {error && (
-            <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
-          )}
-        </div>
-      </aside>
+      {/* Left: the project's real information-editing UI, embedded so the user
+          can read text in the PDF and edit the matching information's fields
+          side by side. The entry selected here is the active one for marking. */}
+      <InformationSidebar
+        projectId={projectId}
+        file={file}
+        lock={lock}
+        // Already inside the PDF viewer, so no "open in PDF viewer" affordance.
+        canOpenPdf={false}
+        onOpenPdfViewer={() => {}}
+        // The modal owns the close control; the embedded header hides its own.
+        onClose={onClose}
+        variant="embedded"
+        initialSelectedId={initialInformationId}
+        onSelectedIdChange={setActiveId}
+      />
 
       {/* Right: the PDF viewer. min-h-0 lets this column shrink to the row's
           height so the viewport below gets a real (non-zero) height to fill. */}
@@ -463,6 +370,72 @@ function ViewerBody({
             ✕
           </button>
         </header>
+
+        {/* Slim selection toolbar: the marking + navigation controls for the
+            active information (the one selected in the sidebar). Relocated here
+            from the old bespoke left list, which is now the InformationSidebar. */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-black/[.08] px-4 py-2 dark:border-white/[.145]">
+          <button
+            type="button"
+            onClick={() => void handleMark()}
+            disabled={
+              activeId == null || !hasLiveSelection || lockedByOther || busy
+            }
+            className="flex h-8 items-center justify-center rounded-md bg-black px-3 text-xs font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Mark selection
+          </button>
+
+          {activeId != null && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => step(-1)}
+                disabled={selections.length === 0}
+                aria-label="Previous selection"
+                className="flex h-8 items-center justify-center rounded-md border border-black/[.08] px-3 text-xs transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[.145] dark:hover:bg-white/[.06]"
+              >
+                ← Prev
+              </button>
+              <span className="shrink-0 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+                {selections.length === 0
+                  ? "0 / 0"
+                  : `${currentIndex + 1} / ${selections.length}`}
+              </span>
+              <button
+                type="button"
+                onClick={() => step(1)}
+                disabled={selections.length === 0}
+                aria-label="Next selection"
+                className="flex h-8 items-center justify-center rounded-md border border-black/[.08] px-3 text-xs transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[.145] dark:hover:bg-white/[.06]"
+              >
+                Next →
+              </button>
+              {currentSelection && (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteSelection(currentSelection.id)}
+                  disabled={lockedByOther || busy}
+                  className="flex h-8 items-center justify-center rounded-md border border-black/[.08] px-3 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[.145] dark:text-red-400 dark:hover:bg-red-500/10"
+                >
+                  Delete current selection
+                </button>
+              )}
+            </div>
+          )}
+
+          {lockedByOther && (
+            <span
+              role="status"
+              className="text-xs font-medium text-amber-700 dark:text-amber-400"
+            >
+              {`${editorName ?? "Another user"} is editing this file, so selections can't be changed right now.`}
+            </span>
+          )}
+          {error && (
+            <span className="text-xs text-red-600 dark:text-red-400">{error}</span>
+          )}
+        </div>
 
         {/* This wrapper is the remaining space below the header and owns a
             definite height (flex-1 + min-h-0). The Viewport sizes itself to

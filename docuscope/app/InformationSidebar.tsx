@@ -34,6 +34,17 @@ type InformationSidebarProps = {
   // first selection.
   onOpenPdfViewer: (informationId: string) => void;
   onClose: () => void;
+  // Layout variant. "overlay" (default) renders the absolutely-positioned
+  // sidebar used in ProjectView; "embedded" renders a plain full-height column
+  // (no absolute positioning, no shadow, no header close button) so it can sit
+  // as the left panel inside the PDF viewer modal.
+  variant?: "overlay" | "embedded";
+  // Preselect an entry on mount (used by the PDF viewer to open the item the
+  // user came in on). Applied once.
+  initialSelectedId?: string | null;
+  // Reports the currently-selected entry id to the parent so it can keep its own
+  // "active information" in sync (the PDF viewer marks selections against it).
+  onSelectedIdChange?: (id: string | null) => void;
 };
 
 // Trim and collapse a blank field to null so cleared values are stored as
@@ -50,8 +61,12 @@ export default function InformationSidebar({
   canOpenPdf,
   onOpenPdfViewer,
   onClose,
+  variant = "overlay",
+  initialSelectedId = null,
+  onSelectedIdChange,
 }: InformationSidebarProps) {
   const { lockedByOther, editorName } = lock;
+  const embedded = variant === "embedded";
 
   const [items, setItems] = useState<Information[]>([]);
   // Entries created locally that the server hasn't confirmed yet.
@@ -76,12 +91,22 @@ export default function InformationSidebar({
   // edited. With nothing selected (or when the selected entry has been deleted),
   // only the title list (top third) is shown. New entries are created up front
   // so they appear in the list immediately, so there is no unsaved-draft state.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const selectedItem =
     selectedId != null
       ? allItems.find((entry) => entry.id === selectedId) ?? null
       : null;
   const editorOpen = selectedItem !== null;
+
+  // Report the selected entry to the parent (the PDF viewer tracks it as the
+  // active information for marking selections). No-op when no callback is given.
+  const onSelectedIdChangeRef = useRef(onSelectedIdChange);
+  useEffect(() => {
+    onSelectedIdChangeRef.current = onSelectedIdChange;
+  });
+  useEffect(() => {
+    onSelectedIdChangeRef.current?.(selectedId);
+  }, [selectedId]);
 
   // The editor's fields. Title is always a plain string; the rest are paragraph
   // text areas, stored null when blank (see docs/dataModel.md).
@@ -264,19 +289,31 @@ export default function InformationSidebar({
     "resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]";
 
   return (
-    <aside className="absolute inset-y-0 right-96 z-10 flex w-[28rem] flex-col border-l border-r border-black/[.08] bg-zinc-50 shadow-xl dark:border-white/[.145] dark:bg-black">
+    <aside
+      className={
+        embedded
+          ? // Embedded in the PDF viewer modal: a plain full-height left column.
+            "flex h-full w-[28rem] shrink-0 flex-col border-r border-black/[.08] bg-zinc-50 dark:border-white/[.145] dark:bg-black"
+          : // Overlay used in ProjectView: absolutely positioned over the table.
+            "absolute inset-y-0 right-96 z-10 flex w-[28rem] flex-col border-l border-r border-black/[.08] bg-zinc-50 shadow-xl dark:border-white/[.145] dark:bg-black"
+      }
+    >
       <header className="flex items-start justify-between gap-2 border-b border-black/[.08] p-4 dark:border-white/[.145]">
         <h2 className="min-w-0 break-words text-lg font-semibold text-black dark:text-zinc-50">
           Information
         </h2>
-        <button
-          type="button"
-          onClick={handleClose}
-          aria-label="Close information view"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
-        >
-          ✕
-        </button>
+        {/* The modal supplies its own close control, so the header close button
+            is only shown in the overlay variant. */}
+        {!embedded && (
+          <button
+            type="button"
+            onClick={handleClose}
+            aria-label="Close information view"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          >
+            ✕
+          </button>
+        )}
       </header>
 
       {lockedByOther && (
