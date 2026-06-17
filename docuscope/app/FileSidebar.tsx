@@ -552,7 +552,7 @@ export default function FileSidebar({
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
-              Reliability
+              Overall Reliability
             </span>
             <textarea
               value={reliability}
@@ -565,7 +565,7 @@ export default function FileSidebar({
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
-              Credibility
+              Overall Credibility
             </span>
             <textarea
               value={credibility}
