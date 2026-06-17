@@ -1,0 +1,44 @@
+# ============================================
+# Development / debug image
+# ============================================
+# Runs `next dev` (full source maps, no minification, hot reload) — the debug
+# counterpart to the production multi-stage Dockerfile. Used by the `app`
+# service in docker-compose.yml to spin up a debug server and run tests against
+# it. Source is bind-mounted at runtime for live reload; this image only needs
+# dependencies to be present.
+
+# Keep this in sync with the production Dockerfile's NODE_VERSION.
+ARG NODE_VERSION=24.13.0-slim
+
+FROM node:${NODE_VERSION} AS dev
+
+WORKDIR /app
+
+ENV NODE_ENV=development
+ENV PORT=3000
+# Bind to all interfaces so the dev server is reachable from the host.
+ENV HOSTNAME="0.0.0.0"
+
+# Install dependencies (devDependencies included — needed by `next dev`).
+# Copied first so the install layer is cached until the lockfile changes.
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
+RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/usr/local/share/.cache/yarn \
+    --mount=type=cache,target=/root/.local/share/pnpm/store \
+  if [ -f package-lock.json ]; then \
+    npm ci --no-audit --no-fund; \
+  elif [ -f yarn.lock ]; then \
+    corepack enable yarn && yarn install --frozen-lockfile --production=false; \
+  elif [ -f pnpm-lock.yaml ]; then \
+    corepack enable pnpm && pnpm install --frozen-lockfile; \
+  else \
+    echo "No lockfile found." && exit 1; \
+  fi
+
+# Copy source so the image runs standalone; docker-compose bind-mounts the
+# host source over this at runtime for live reload.
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]
