@@ -26,8 +26,8 @@ export async function POST(
     const { email } = await verifyAuth(request);
     const { id } = await params;
     await requireContributor(id, email);
-    const body = await request.json() as { label: string; color: string };
-    const label = await createLabel(id, body.label, body.color);
+    const body = await request.json() as { label: string; color: string; type?: string };
+    const label = await createLabel(id, body.label, body.color, body.type);
     return NextResponse.json(label);
   } catch (err) {
     return apiError(err);

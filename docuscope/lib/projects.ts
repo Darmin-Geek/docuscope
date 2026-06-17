@@ -20,6 +20,7 @@ export type Label = {
   id: string;
   label: string;
   color: string;
+  type: 'file' | 'information';
 };
 
 export type FileDoc = {
@@ -349,10 +350,10 @@ export async function getLabels(projectId: string): Promise<Label[]> {
   return api<Label[]>(`/api/projects/${projectId}/labels`);
 }
 
-export async function createLabel(projectId: string, label: string, color: string): Promise<Label> {
+export async function createLabel(projectId: string, label: string, color: string, type: 'file' | 'information' = 'file'): Promise<Label> {
   return api<Label>(`/api/projects/${projectId}/labels`, {
     method: 'POST',
-    body: JSON.stringify({ label, color }),
+    body: JSON.stringify({ label, color, type }),
   });
 }
 

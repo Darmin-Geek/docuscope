@@ -41,6 +41,7 @@ export const labels = pgTable('labels', {
     .references(() => projects.id, { onDelete: 'cascade' }),
   label: text('label').notNull(),
   color: char('color', { length: 7 }).notNull().default('#9ca3af'),
+  type: text('type').notNull().default('file'),
 });
 
 export const folders = pgTable('folders', {

@@ -148,11 +148,11 @@ export default function ProjectSettingsModal({
     }
   }
 
-  async function handleAddLabel() {
+  async function handleAddLabel(type: 'file' | 'information') {
     setError(null);
     setBusy(true);
     try {
-      const created = await createLabel(projectId, "New label", NEW_LABEL_COLOR);
+      const created = await createLabel(projectId, "New label", NEW_LABEL_COLOR, type);
       setDraftLabels((prev) => [...prev, created]);
       onLabelCreated(created);
     } catch (err) {
@@ -279,60 +279,62 @@ export default function ProjectSettingsModal({
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Labels
-            </span>
-            <div className="flex flex-col gap-2">
-              {draftLabels.map((label) => (
-                <div key={label.id} className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={label.color}
-                    aria-label="Label color"
-                    onChange={(event) =>
-                      editDraft(label.id, { color: event.target.value })
-                    }
-                    onBlur={() => void commitLabel(label.id)}
-                    className="h-8 w-8 shrink-0 cursor-pointer rounded border border-black/[.12] bg-transparent dark:border-white/[.18]"
-                  />
-                  <input
-                    type="text"
-                    value={label.label}
-                    onChange={(event) =>
-                      editDraft(label.id, { label: event.target.value })
-                    }
-                    onBlur={() => void commitLabel(label.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        event.currentTarget.blur();
+          {(["file", "information"] as const).map((labelType) => (
+            <div key={labelType} className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {labelType === "file" ? "File Labels" : "Information Level Labels"}
+              </span>
+              <div className="flex flex-col gap-2">
+                {draftLabels.filter((l) => (l.type ?? "file") === labelType).map((label) => (
+                  <div key={label.id} className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={label.color}
+                      aria-label="Label color"
+                      onChange={(event) =>
+                        editDraft(label.id, { color: event.target.value })
                       }
-                    }}
-                    className="h-8 min-w-0 flex-1 rounded-md border border-black/[.12] bg-transparent px-2 text-sm text-black outline-none focus:border-black dark:border-white/[.18] dark:text-zinc-50 dark:focus:border-white"
-                  />
-                  <LabelPill label={label.label} color={label.color} />
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteLabel(label.id)}
-                    disabled={busy}
-                    aria-label={`Delete ${label.label}`}
-                    className="shrink-0 text-xl leading-none text-zinc-400 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
+                      onBlur={() => void commitLabel(label.id)}
+                      className="h-8 w-8 shrink-0 cursor-pointer rounded border border-black/[.12] bg-transparent dark:border-white/[.18]"
+                    />
+                    <input
+                      type="text"
+                      value={label.label}
+                      onChange={(event) =>
+                        editDraft(label.id, { label: event.target.value })
+                      }
+                      onBlur={() => void commitLabel(label.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                      }}
+                      className="h-8 min-w-0 flex-1 rounded-md border border-black/[.12] bg-transparent px-2 text-sm text-black outline-none focus:border-black dark:border-white/[.18] dark:text-zinc-50 dark:focus:border-white"
+                    />
+                    <LabelPill label={label.label} color={label.color} />
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteLabel(label.id)}
+                      disabled={busy}
+                      aria-label={`Delete ${label.label}`}
+                      className="shrink-0 text-xl leading-none text-zinc-400 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleAddLabel(labelType)}
+                disabled={busy}
+                className="self-start text-sm font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+              >
+                {labelType === "file" ? "+ Add file label" : "+ Add information label"}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void handleAddLabel()}
-              disabled={busy}
-              className="self-start text-sm font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
-            >
-              + Add label
-            </button>
-          </div>
+          ))}
 
           {error && (
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>

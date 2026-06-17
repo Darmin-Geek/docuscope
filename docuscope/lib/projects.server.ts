@@ -24,11 +24,15 @@ import type {
   SelectionFields,
 } from './projects';
 
-const DEFAULT_LABELS = [
-  { label: 'Not started', color: '#9ca3af' },
-  { label: 'Not Reviewed', color: '#f59e0b' },
-  { label: 'Done', color: '#22c55e' },
-  { label: 'Dead end', color: '#ef4444' },
+const DEFAULT_FILE_LABELS = [
+  { label: 'Done', color: '#22c55e', type: 'file' },
+];
+
+const DEFAULT_INFORMATION_LABELS = [
+  { label: 'Fact',           color: '#22c55e', type: 'information' },
+  { label: 'Opinion',        color: '#3b82f6', type: 'information' },
+  { label: 'Misinformation', color: '#f59e0b', type: 'information' },
+  { label: 'Disinformation', color: '#ef4444', type: 'information' },
 ];
 
 // ── text chunking ──────────────────────────────────────────────────────────────
@@ -162,7 +166,10 @@ export async function createProject(
   );
 
   await db.insert(labelsTable).values(
-    DEFAULT_LABELS.map((l) => ({ projectId: project.id, ...l })),
+    [...DEFAULT_FILE_LABELS, ...DEFAULT_INFORMATION_LABELS].map((l) => ({
+      projectId: project.id,
+      ...l,
+    })),
   );
 
   return project.id;
@@ -675,20 +682,26 @@ export async function getLabels(projectId: string): Promise<Label[]> {
     .select()
     .from(labelsTable)
     .where(eq(labelsTable.projectId, projectId));
-  return rows.map((r) => ({ id: r.id, label: r.label, color: r.color }));
+  return rows.map((r) => ({
+    id: r.id,
+    label: r.label,
+    color: r.color,
+    type: (r.type ?? 'file') as Label['type'],
+  }));
 }
 
 export async function createLabel(
   projectId: string,
   label: string,
   color: string,
+  type: string = 'file',
 ): Promise<Label> {
   const trimmed = label.trim();
   const [row] = await db
     .insert(labelsTable)
-    .values({ projectId, label: trimmed, color })
+    .values({ projectId, label: trimmed, color, type })
     .returning();
-  return { id: row.id, label: row.label, color: row.color };
+  return { id: row.id, label: row.label, color: row.color, type: row.type as Label['type'] };
 }
 
 export async function updateLabel(

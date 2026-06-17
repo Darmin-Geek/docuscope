@@ -1,0 +1,1 @@
+ALTER TABLE "labels" ADD COLUMN "type" text DEFAULT 'file' NOT NULL;

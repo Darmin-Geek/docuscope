@@ -116,7 +116,7 @@ export default function FileSidebar({
   const editingFields = useRef(false);
 
   // Whether the "add label" picker (the unassigned labels) is showing.
-  const [pickingLabel, setPickingLabel] = useState(false);
+  const [pickingLabelType, setPickingLabelType] = useState<'file' | 'information' | null>(null);
   const [labelError, setLabelError] = useState<string | null>(null);
 
   // The project's folders (for the "move to folder" picker) and the id of the
@@ -176,7 +176,7 @@ export default function FileSidebar({
 
   async function handleAddLabel(labelId: string) {
     setLabelError(null);
-    setPickingLabel(false);
+    setPickingLabelType(null);
     try {
       await addLabelToFile(projectId, file.id, labelId);
       onLabelsChanged(file.id, (current) =>
@@ -431,51 +431,58 @@ export default function FileSidebar({
           </div>
         )}
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-black dark:text-zinc-50">
-            Labels
-          </span>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {appliedLabels.map((label) => (
-              <LabelPill key={label.id} label={label.label} color={label.color}>
-                <button
-                  type="button"
-                  onClick={() => void handleRemoveLabel(label.id)}
-                  disabled={lockedByOther}
-                  aria-label={`Remove ${label.label}`}
-                  className="leading-none opacity-70 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
-                >
-                  ×
-                </button>
-              </LabelPill>
-            ))}
-            {availableLabels.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setPickingLabel((open) => !open)}
-                disabled={lockedByOther}
-                className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
-              >
-                + Label
-              </button>
-            )}
-          </div>
-          {pickingLabel && availableLabels.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 rounded-md border border-black/[.08] p-2 dark:border-white/[.145]">
-              {availableLabels.map((label) => (
-                <LabelPill
-                  key={label.id}
-                  label={label.label}
-                  color={label.color}
-                  onClick={() => void handleAddLabel(label.id)}
-                />
-              ))}
+        {(["file", "information"] as const).map((labelType) => {
+          const sectionApplied = appliedLabels.filter((l) => (l.type ?? "file") === labelType);
+          const sectionAvailable = availableLabels.filter((l) => (l.type ?? "file") === labelType);
+          const isPicking = pickingLabelType === labelType;
+          return (
+            <div key={labelType} className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-black dark:text-zinc-50">
+                {labelType === "file" ? "File Labels" : "Information Level"}
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {sectionApplied.map((label) => (
+                  <LabelPill key={label.id} label={label.label} color={label.color}>
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoveLabel(label.id)}
+                      disabled={lockedByOther}
+                      aria-label={`Remove ${label.label}`}
+                      className="leading-none opacity-70 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
+                    >
+                      ×
+                    </button>
+                  </LabelPill>
+                ))}
+                {sectionAvailable.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setPickingLabelType(isPicking ? null : labelType)}
+                    disabled={lockedByOther}
+                    className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                  >
+                    + Label
+                  </button>
+                )}
+              </div>
+              {isPicking && sectionAvailable.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 rounded-md border border-black/[.08] p-2 dark:border-white/[.145]">
+                  {sectionAvailable.map((label) => (
+                    <LabelPill
+                      key={label.id}
+                      label={label.label}
+                      color={label.color}
+                      onClick={() => void handleAddLabel(label.id)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-          {labelError && (
-            <p className="text-xs text-red-600 dark:text-red-400">{labelError}</p>
-          )}
-        </div>
+          );
+        })}
+        {labelError && (
+          <p className="text-xs text-red-600 dark:text-red-400">{labelError}</p>
+        )}
 
         {moveError && (
           <p className="text-xs text-red-600 dark:text-red-400">{moveError}</p>
