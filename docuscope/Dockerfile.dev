@@ -22,6 +22,8 @@ ENV HOSTNAME="0.0.0.0"
 # Install dependencies (devDependencies included — needed by `next dev`).
 # Copied first so the install layer is cached until the lockfile changes.
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
+# postinstall runs scripts/copy-pdfium.mjs, so scripts/ must exist before npm ci
+COPY scripts ./scripts
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=cache,target=/usr/local/share/.cache/yarn \
     --mount=type=cache,target=/root/.local/share/pnpm/store \
