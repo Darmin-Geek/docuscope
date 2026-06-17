@@ -43,6 +43,9 @@ export async function GET(
     const { email } = await verifyAuth(request);
     const { id, fileId } = await params;
     await requireContributor(id, email);
+    // Confirm the file belongs to this project before reporting on it, so a
+    // contributor can't probe chunk state for files in other projects.
+    await getFile(id, fileId);
     const chunksExist = await hasFileChunks(fileId);
     return NextResponse.json({ hasChunks: chunksExist });
   } catch (err) {
