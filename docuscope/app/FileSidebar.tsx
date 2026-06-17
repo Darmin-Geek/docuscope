@@ -16,6 +16,8 @@ import {
   getFolders,
   getFolderFileIds,
   moveFile,
+  checkOcrStatus,
+  ocrFile,
   type FileDoc,
   type Folder,
   type Label,
@@ -138,6 +140,12 @@ export default function FileSidebar({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
+  // OCR state for the "OCR this PDF" button.
+  const [ocrState, setOcrState] = useState<
+    'idle' | 'checking' | 'confirming' | 'running' | 'done' | 'error'
+  >('idle');
+  const [ocrError, setOcrError] = useState<string | null>(null);
+
   // Fetch the file's bytes and save them under its original name. We download
   // the blob ourselves rather than linking straight to the storage URL because
   // the `download` attribute is ignored for cross-origin URLs, which would open
@@ -233,6 +241,34 @@ export default function FileSidebar({
       setMoveError(err instanceof Error ? err.message : "Failed to move file.");
     } finally {
       setMoving(false);
+    }
+  }
+
+  async function handleOcrClick() {
+    setOcrState('checking');
+    setOcrError(null);
+    try {
+      const { hasChunks } = await checkOcrStatus(projectId, file.id);
+      if (hasChunks) {
+        setOcrState('confirming');
+      } else {
+        await runOcr();
+      }
+    } catch (err: unknown) {
+      setOcrError(err instanceof Error ? err.message : 'Failed to check OCR status.');
+      setOcrState('error');
+    }
+  }
+
+  async function runOcr() {
+    setOcrState('running');
+    try {
+      await ocrFile(projectId, file.id);
+      setOcrState('done');
+      setPreviewUrl(null); // force preview reload — the S3 object was replaced
+    } catch (err: unknown) {
+      setOcrError(err instanceof Error ? err.message : 'OCR failed.');
+      setOcrState('error');
     }
   }
 
@@ -590,15 +626,59 @@ export default function FileSidebar({
               Preview
             </span>
             {kind === "pdf" && (
-              <button
-                type="button"
-                onClick={onOpenPdfViewer}
-                className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
-              >
-                Open PDF viewer
-              </button>
+              <div className="flex items-center gap-2">
+                {ocrState === "confirming" ? (
+                  <div className="flex flex-col gap-1 text-xs text-zinc-700 dark:text-zinc-300">
+                    <p>This PDF already has extracted text. Running OCR will replace it.</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={runOcr}
+                        className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                      >
+                        Replace
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOcrState("idle")}
+                        className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleOcrClick}
+                    disabled={ocrState === "checking" || ocrState === "running"}
+                    className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                  >
+                    {ocrState === "checking"
+                      ? "Checking…"
+                      : ocrState === "running"
+                      ? "Running OCR…"
+                      : "OCR this PDF"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onOpenPdfViewer}
+                  className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                >
+                  Open PDF viewer
+                </button>
+              </div>
             )}
           </div>
+
+          {ocrState === "done" && (
+            <p className="text-xs text-green-600 dark:text-green-400">OCR complete.</p>
+          )}
+          {ocrState === "error" && ocrError && (
+            <p className="text-xs text-red-600 dark:text-red-400">{ocrError}</p>
+          )}
+
           {kind === "unsupported" ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Preview not implemented yet for this file type

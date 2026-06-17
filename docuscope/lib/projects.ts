@@ -257,6 +257,25 @@ export async function getFileDownloadUrl(projectId: string, fileId: string): Pro
   return url;
 }
 
+export async function checkOcrStatus(
+  projectId: string,
+  fileId: string,
+): Promise<{ hasChunks: boolean }> {
+  return api<{ hasChunks: boolean }>(
+    `/api/projects/${projectId}/files/${fileId}/ocr`,
+  );
+}
+
+export async function ocrFile(
+  projectId: string,
+  fileId: string,
+): Promise<void> {
+  await api<{ ok: boolean }>(
+    `/api/projects/${projectId}/files/${fileId}/ocr`,
+    { method: 'POST' },
+  );
+}
+
 // ── information ───────────────────────────────────────────────────────────────
 
 export async function getInformation(

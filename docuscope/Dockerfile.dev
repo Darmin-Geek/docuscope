@@ -37,6 +37,9 @@ RUN --mount=type=cache,target=/root/.npm \
     echo "No lockfile found." && exit 1; \
   fi
 
+# Install OCRmyPDF so the OCR API route can shell out to it at runtime.
+RUN apt-get update && apt-get install -y ocrmypdf && rm -rf /var/lib/apt/lists/*
+
 # Copy source so the image runs standalone; docker-compose bind-mounts the
 # host source over this at runtime for live reload.
 COPY . .

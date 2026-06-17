@@ -458,6 +458,25 @@ export async function createFileRecord(
   };
 }
 
+export async function replaceFileChunks(fileId: string, text: string): Promise<void> {
+  await db.delete(fileChunks).where(eq(fileChunks.fileId, fileId));
+  const chunks = chunkText(text);
+  if (chunks.length > 0) {
+    await db.insert(fileChunks).values(
+      chunks.map((content, chunkIndex) => ({ fileId, chunkIndex, content })),
+    );
+  }
+}
+
+export async function hasFileChunks(fileId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: fileChunks.id })
+    .from(fileChunks)
+    .where(eq(fileChunks.fileId, fileId))
+    .limit(1);
+  return row !== undefined;
+}
+
 export async function updateFileMetadata(
   projectId: string,
   fileId: string,
