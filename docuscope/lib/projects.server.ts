@@ -102,7 +102,7 @@ export async function requireContributor(projectId: string, email: string): Prom
     .where(
       and(
         eq(projectContributors.projectId, projectId),
-        eq(projectContributors.email, email),
+        eq(projectContributors.email, email.trim().toLowerCase()),
       ),
     )
     .limit(1);
@@ -115,7 +115,7 @@ export async function getProjectsForUser(email: string): Promise<Project[]> {
   const contribRows = await db
     .select({ projectId: projectContributors.projectId })
     .from(projectContributors)
-    .where(eq(projectContributors.email, email));
+    .where(eq(projectContributors.email, email.trim().toLowerCase()));
 
   if (contribRows.length === 0) return [];
 
