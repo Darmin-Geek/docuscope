@@ -281,23 +281,30 @@ function ViewerBody({
     setBusy(true);
     setError(null);
     try {
-      const text = (await selectionApi.getSelectedText(DOC_ID).toPromise()).join("\n");
+      // getSelectedText resolves to one string per page the selection covers,
+      // ordered the same (ascending page) as getFormattedSelection — so the
+      // text at index i belongs to the page-row at formatted[i].
+      const texts = await selectionApi.getSelectedText(DOC_ID).toPromise();
       // A selection spanning multiple pages is stored as one row per page, so
-      // each highlight sits on the page whose coordinates it uses.
-      for (const page of formatted) {
-        await addSelection(projectId, file.id, activeId, {
-          pageIndex: page.pageIndex,
-          boundingTop: page.rect.origin.y,
-          boundingLeft: page.rect.origin.x,
-          rects: page.segmentRects.map((r) => ({
-            x: r.origin.x,
-            y: r.origin.y,
-            width: r.size.width,
-            height: r.size.height,
-          })),
-          text,
-        });
-      }
+      // each highlight sits on the page whose coordinates it uses and carries
+      // only that page's text. All page-rows are sent in a single request so
+      // the mark is saved atomically.
+      const rows = formatted.map((page, i) => ({
+        pageIndex: page.pageIndex,
+        boundingTop: page.rect.origin.y,
+        boundingLeft: page.rect.origin.x,
+        rects: page.segmentRects.map((r) => ({
+          x: r.origin.x,
+          y: r.origin.y,
+          width: r.size.width,
+          height: r.size.height,
+        })),
+        // Defensive: if the text array is shorter or misaligned (e.g. a page
+        // yielded no copyable text), fall back to "" rather than undefined so
+        // no row is left without a text value.
+        text: texts[i] ?? "",
+      }));
+      await addSelection(projectId, file.id, activeId, rows);
       selectionApi.clear(DOC_ID);
       await refreshSelections(activeId);
     } catch (err: unknown) {

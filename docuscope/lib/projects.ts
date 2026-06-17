@@ -322,13 +322,13 @@ export async function addSelection(
   projectId: string,
   fileId: string,
   informationId: string,
-  fields: SelectionFields,
-): Promise<string> {
-  const { id } = await api<{ id: string }>(
+  fields: SelectionFields[],
+): Promise<string[]> {
+  const { ids } = await api<{ ids: string[] }>(
     `/api/projects/${projectId}/files/${fileId}/information/${informationId}/selections`,
     { method: 'POST', body: JSON.stringify(fields) },
   );
-  return id;
+  return ids;
 }
 
 export async function deleteSelection(

@@ -27,9 +27,9 @@ export async function POST(
     const { email } = await verifyAuth(request);
     const { id, fileId, infoId } = await params;
     await requireContributor(id, email);
-    const fields = await request.json() as SelectionFields;
-    const newId = await addSelection(id, fileId, infoId, fields);
-    return NextResponse.json({ id: newId });
+    const fields = await request.json() as SelectionFields[];
+    const ids = await addSelection(id, fileId, infoId, fields);
+    return NextResponse.json({ ids });
   } catch (err) {
     return apiError(err);
   }

@@ -638,14 +638,17 @@ export async function addSelection(
   projectId: string,
   fileId: string,
   informationId: string,
-  fields: SelectionFields,
-): Promise<string> {
+  fields: SelectionFields[],
+): Promise<string[]> {
   await requireInformation(projectId, fileId, informationId);
-  const [row] = await db
+  if (fields.length === 0) return [];
+  // All page-rows of one mark are inserted in a single multi-row statement so
+  // the highlight is saved atomically (all pages or none).
+  const rows = await db
     .insert(selectionsTable)
-    .values({ informationId, ...fields })
+    .values(fields.map((f) => ({ informationId, ...f })))
     .returning({ id: selectionsTable.id });
-  return row.id;
+  return rows.map((r) => r.id);
 }
 
 export async function deleteSelection(

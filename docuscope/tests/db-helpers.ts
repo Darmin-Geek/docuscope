@@ -1,5 +1,5 @@
 import { db } from '../lib/drizzle/db';
-import { projects, files, folders, fileFolders, fileChunks } from '../lib/drizzle/schema';
+import { projects, files, folders, fileFolders, fileChunks, information } from '../lib/drizzle/schema';
 import { eq } from 'drizzle-orm';
 
 /** Create a minimal project record and return its UUID id. */
@@ -50,6 +50,18 @@ export async function insertChunks(
   await db
     .insert(fileChunks)
     .values(contents.map((content, chunkIndex) => ({ fileId, chunkIndex, content })));
+}
+
+/** Create a minimal information record for a file. Returns the information id. */
+export async function createTestInformation(
+  fileId: string,
+  options: { informationTitle?: string } = {},
+): Promise<string> {
+  const [row] = await db
+    .insert(information)
+    .values({ fileId, informationTitle: options.informationTitle ?? 'Test Information' })
+    .returning({ id: information.id });
+  return row.id;
 }
 
 /** Create a folder with the given subfile ids pre-populated. Returns the folder id. */
