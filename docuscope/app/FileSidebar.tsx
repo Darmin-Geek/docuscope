@@ -134,6 +134,9 @@ export default function FileSidebar({
   const kind = previewKind(file.filename);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // Bumped to force the preview to re-fetch when the underlying S3 object is
+  // replaced in place (e.g. after OCR), which leaves the storage key unchanged.
+  const [previewRefresh, setPreviewRefresh] = useState(0);
 
   // Whether a download is in flight, used to disable the button so a slow
   // network can't kick off several fetches at once.
@@ -265,7 +268,11 @@ export default function FileSidebar({
     try {
       await ocrFile(projectId, file.id);
       setOcrState('done');
-      setPreviewUrl(null); // force preview reload — the S3 object was replaced
+      // Force the preview to reload — the S3 object was replaced in place, so
+      // the storage key is unchanged and the fetch effect needs an explicit
+      // nudge to request a fresh (cache-busting) signed URL.
+      setPreviewUrl(null);
+      setPreviewRefresh((n) => n + 1);
     } catch (err: unknown) {
       setOcrError(err instanceof Error ? err.message : 'OCR failed.');
       setOcrState('error');
@@ -278,6 +285,7 @@ export default function FileSidebar({
   useEffect(() => {
     if (kind === "unsupported") return;
     let active = true;
+    setPreviewError(null);
     getFileDownloadUrl(projectId, file.id)
       .then((url) => {
         if (active) setPreviewUrl(url);
@@ -291,7 +299,7 @@ export default function FileSidebar({
     return () => {
       active = false;
     };
-  }, [file.storageReference, kind]);
+  }, [projectId, file.id, file.storageReference, kind, previewRefresh]);
 
   // When another editor releases the lock, fetch the latest saved values so
   // the form shows what they left behind before we start editing.
