@@ -45,3 +45,6 @@ firebase-export-*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated: copied from node_modules/@embedpdf/pdfium by scripts/copy-pdfium.mjs
+/public/pdfium.wasm
