@@ -251,8 +251,12 @@ export default function FileSidebar({
     setOcrState('checking');
     setOcrError(null);
     try {
-      const { hasChunks } = await checkOcrStatus(projectId, file.id);
-      if (hasChunks) {
+      const { hasChunks, status } = await checkOcrStatus(projectId, file.id);
+      if (status === 'pending' || status === 'running') {
+        // A job is already in flight (e.g. started before this sidebar opened);
+        // just resume polling for it.
+        setOcrState('running');
+      } else if (hasChunks) {
         setOcrState('confirming');
       } else {
         await runOcr();
@@ -263,21 +267,71 @@ export default function FileSidebar({
     }
   }
 
+  // Enqueue the OCR job. The work runs in the background; the polling effect
+  // below drives the UI from 'running' to 'done'/'error'.
   async function runOcr() {
     setOcrState('running');
+    setOcrError(null);
     try {
       await ocrFile(projectId, file.id);
-      setOcrState('done');
-      // Force the preview to reload — the S3 object was replaced in place, so
-      // the storage key is unchanged and the fetch effect needs an explicit
-      // nudge to request a fresh (cache-busting) signed URL.
-      setPreviewUrl(null);
-      setPreviewRefresh((n) => n + 1);
     } catch (err: unknown) {
+      // A 409 means a job is already active — stay in 'running' and let polling
+      // pick it up. Anything else is a real failure.
+      if (err instanceof Error && err.message === 'Conflict') return;
       setOcrError(err instanceof Error ? err.message : 'OCR failed.');
       setOcrState('error');
     }
   }
+
+  // Poll job status while an OCR run is in flight. Converges the UI to
+  // 'done' (refreshing the preview, whose S3 object was replaced in place) or
+  // 'error'. Cleared on unmount or when we leave the 'running' state.
+  useEffect(() => {
+    if (ocrState !== 'running') return;
+    let active = true;
+    const interval = setInterval(async () => {
+      try {
+        const { status, error } = await checkOcrStatus(projectId, file.id);
+        if (!active) return;
+        if (status === 'done') {
+          setOcrState('done');
+          // Force the preview to reload — the S3 object was replaced in place,
+          // so the storage key is unchanged and the fetch effect needs an
+          // explicit nudge to request a fresh (cache-busting) signed URL.
+          setPreviewUrl(null);
+          setPreviewRefresh((n) => n + 1);
+        } else if (status === 'error') {
+          setOcrError(error ?? 'OCR failed.');
+          setOcrState('error');
+        }
+      } catch (err: unknown) {
+        if (!active) return;
+        setOcrError(err instanceof Error ? err.message : 'OCR failed.');
+        setOcrState('error');
+      }
+    }, 3000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [ocrState, projectId, file.id]);
+
+  // On open, resume tracking an OCR job that is already running for this PDF
+  // (e.g. started in a previous session) so the UI reflects in-flight work.
+  useEffect(() => {
+    if (kind !== 'pdf') return;
+    let active = true;
+    checkOcrStatus(projectId, file.id)
+      .then(({ status }) => {
+        if (active && (status === 'pending' || status === 'running')) {
+          setOcrState('running');
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [projectId, file.id, kind]);
 
   // Fetch a download URL for previewable files. The component is remounted per
   // file (keyed by id in the parent), so the URL state starts fresh each time;
@@ -285,10 +339,12 @@ export default function FileSidebar({
   useEffect(() => {
     if (kind === "unsupported") return;
     let active = true;
-    setPreviewError(null);
     getFileDownloadUrl(projectId, file.id)
       .then((url) => {
-        if (active) setPreviewUrl(url);
+        if (active) {
+          setPreviewUrl(url);
+          setPreviewError(null); // clear any stale error from a prior load
+        }
       })
       .catch((err: unknown) => {
         if (!active) return;

@@ -1,5 +1,5 @@
 import { db } from './drizzle/db';
-import { eq, and, or, inArray, isNull, getTableColumns, sql } from 'drizzle-orm';
+import { eq, and, or, inArray, isNull, lt, desc, getTableColumns, sql } from 'drizzle-orm';
 import {
   projects,
   projectContributors,
@@ -11,6 +11,7 @@ import {
   fileFolders,
   information as informationTable,
   informationSelections as selectionsTable,
+  ocrJobs,
 } from './drizzle/schema';
 import { getUidForEmail } from './users.server';
 import type {
@@ -22,6 +23,7 @@ import type {
   InformationFields,
   Selection,
   SelectionFields,
+  OcrJobStatus,
 } from './projects';
 
 const DEFAULT_LABELS = [
@@ -475,6 +477,95 @@ export async function hasFileChunks(fileId: string): Promise<boolean> {
     .where(eq(fileChunks.fileId, fileId))
     .limit(1);
   return row !== undefined;
+}
+
+// ── OCR jobs ─────────────────────────────────────────────────────────────────
+
+// An OCR job runs detached in the request-serving process, so a container
+// recycle can orphan one. Any pending/running job not touched within this
+// window is presumed dead and reaped to 'error'. Keep this comfortably larger
+// than the ocrmypdf subprocess timeout in the OCR route so a job that is
+// legitimately still working is never reaped out from under itself.
+const OCR_STALE_MS = 15 * 60 * 1000;
+
+export interface OcrJob {
+  id: string;
+  fileId: string;
+  status: OcrJobStatus;
+  error: string | null;
+  startedAt: number | null;
+  updatedAt: number;
+}
+
+// Flip stale active jobs for a file to 'error'. Called before reading or
+// creating a job so callers always see a self-healed view.
+async function reapStaleOcrJobs(fileId: string): Promise<void> {
+  await db
+    .update(ocrJobs)
+    .set({ status: 'error', error: 'OCR timed out', updatedAt: Date.now() })
+    .where(
+      and(
+        eq(ocrJobs.fileId, fileId),
+        inArray(ocrJobs.status, ['pending', 'running']),
+        lt(ocrJobs.updatedAt, Date.now() - OCR_STALE_MS),
+      ),
+    );
+}
+
+// Enqueue an OCR job for a file. Throws 'Conflict' if one is already active,
+// so a double click or concurrent request can't kick off a second OCR run.
+export async function createOcrJob(fileId: string): Promise<OcrJob> {
+  await reapStaleOcrJobs(fileId);
+
+  const [active] = await db
+    .select({ id: ocrJobs.id })
+    .from(ocrJobs)
+    .where(
+      and(eq(ocrJobs.fileId, fileId), inArray(ocrJobs.status, ['pending', 'running'])),
+    )
+    .limit(1);
+  if (active) throw new Error('Conflict');
+
+  // The pre-check handles the common case; the partial unique index is the
+  // hard guard against a race between two simultaneous requests (the loser's
+  // insert throws, surfacing as a 500 — acceptable for that rare collision).
+  const now = Date.now();
+  const [row] = await db
+    .insert(ocrJobs)
+    .values({ fileId, status: 'pending', updatedAt: now })
+    .returning();
+  return row as OcrJob;
+}
+
+// Latest job for a file (most recently updated), or null if none has run.
+export async function getLatestOcrJob(fileId: string): Promise<OcrJob | null> {
+  await reapStaleOcrJobs(fileId);
+  const [row] = await db
+    .select()
+    .from(ocrJobs)
+    .where(eq(ocrJobs.fileId, fileId))
+    .orderBy(desc(ocrJobs.updatedAt))
+    .limit(1);
+  return (row as OcrJob | undefined) ?? null;
+}
+
+export async function markOcrJobRunning(jobId: string): Promise<void> {
+  const now = Date.now();
+  await db
+    .update(ocrJobs)
+    .set({ status: 'running', startedAt: now, updatedAt: now })
+    .where(eq(ocrJobs.id, jobId));
+}
+
+// Finish a job: pass an error message to mark it 'error', or null for 'done'.
+export async function completeOcrJob(
+  jobId: string,
+  error: string | null,
+): Promise<void> {
+  await db
+    .update(ocrJobs)
+    .set({ status: error ? 'error' : 'done', error, updatedAt: Date.now() })
+    .where(eq(ocrJobs.id, jobId));
 }
 
 export async function updateFileMetadata(
