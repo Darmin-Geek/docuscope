@@ -48,6 +48,29 @@ export type Information = {
 
 export type InformationFields = Omit<Information, 'id'>;
 
+// A flat highlight rectangle in PDF page coordinates (points, unscaled). Mirrors
+// the same-named type in lib/drizzle/schema.ts; kept separate so this client
+// module never imports server-only schema code.
+export type SelectionRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+// A passage of a file's PDF that a piece of information is based on. Ordered by
+// location in the document (page, then top-to-bottom) when listed.
+export type Selection = {
+  id: string;
+  pageIndex: number;
+  boundingTop: number;
+  boundingLeft: number;
+  rects: SelectionRect[];
+  text: string;
+};
+
+export type SelectionFields = Omit<Selection, 'id'>;
+
 // ── projects ──────────────────────────────────────────────────────────────────
 
 export async function getProjectsForUser(_email: string): Promise<Project[]> {
@@ -279,6 +302,43 @@ export async function deleteInformation(
 ): Promise<void> {
   await api(
     `/api/projects/${projectId}/files/${fileId}/information/${informationId}`,
+    { method: 'DELETE' },
+  );
+}
+
+// ── selections ────────────────────────────────────────────────────────────────
+
+export async function getSelections(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+): Promise<Selection[]> {
+  return api<Selection[]>(
+    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/selections`,
+  );
+}
+
+export async function addSelection(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  fields: SelectionFields[],
+): Promise<string[]> {
+  const { ids } = await api<{ ids: string[] }>(
+    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/selections`,
+    { method: 'POST', body: JSON.stringify(fields) },
+  );
+  return ids;
+}
+
+export async function deleteSelection(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  selectionId: string,
+): Promise<void> {
+  await api(
+    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/selections/${selectionId}`,
     { method: 'DELETE' },
   );
 }

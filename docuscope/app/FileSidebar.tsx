@@ -39,6 +39,8 @@ type FileSidebarProps = {
   lock: FileLock;
   // Opens the information sidebar to the left of this one.
   onOpenInformation: () => void;
+  // Opens the embedded PDF viewer modal (only rendered for PDF files).
+  onOpenPdfViewer: () => void;
   onClose: () => void;
   // Called after a successful save so the parent can refresh its file list.
   onSaved: (updated: FileDoc) => void;
@@ -88,6 +90,7 @@ export default function FileSidebar({
   labels,
   lock,
   onOpenInformation,
+  onOpenPdfViewer,
   onClose,
   onSaved,
   onMoved,
@@ -582,9 +585,20 @@ export default function FileSidebar({
         )}
 
         <div className="mt-2 flex flex-1 flex-col gap-2 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
-          <span className="text-sm font-medium text-black dark:text-zinc-50">
-            Preview
-          </span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-black dark:text-zinc-50">
+              Preview
+            </span>
+            {kind === "pdf" && (
+              <button
+                type="button"
+                onClick={onOpenPdfViewer}
+                className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+              >
+                Open PDF viewer
+              </button>
+            )}
+          </div>
           {kind === "unsupported" ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Preview not implemented yet for this file type
