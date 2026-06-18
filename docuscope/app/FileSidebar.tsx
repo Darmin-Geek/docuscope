@@ -458,12 +458,17 @@ export default function FileSidebar({
     <>
     <aside className="flex w-96 shrink-0 flex-col border-l border-black/[.08] bg-zinc-50 dark:border-white/[.145] dark:bg-black">
       <header className="flex items-start justify-between gap-2 border-b border-black/[.08] p-4 dark:border-white/[.145]">
-        <h2
-          className="min-w-0 break-words text-lg font-semibold text-black dark:text-zinc-50"
-          title={file.filename}
-        >
-          {file.filename}
-        </h2>
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            File Details
+          </p>
+          <h2
+            className="min-w-0 break-words text-lg font-semibold text-black dark:text-zinc-50"
+            title={file.filename}
+          >
+            {file.filename}
+          </h2>
+        </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
@@ -615,22 +620,13 @@ export default function FileSidebar({
             />
           </label>
 
-          <button
-            type="button"
-            data-no-lock="true"
-            onClick={onOpenInformation}
-            className="flex h-9 items-center justify-center rounded-md bg-black text-sm font-medium text-white transition-colors hover:bg-zinc-800"
-          >
-            Open information view
-          </button>
-
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
-              Overall Bias
+              Source
             </span>
             <textarea
-              value={overallBias}
-              onChange={(event) => setOverallBias(event.target.value)}
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
               disabled={lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
@@ -639,11 +635,11 @@ export default function FileSidebar({
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
-              Source
+              Overall Bias
             </span>
             <textarea
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
+              value={overallBias}
+              onChange={(event) => setOverallBias(event.target.value)}
               disabled={lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
@@ -675,6 +671,15 @@ export default function FileSidebar({
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
           </label>
+
+          <button
+            type="button"
+            data-no-lock="true"
+            onClick={onOpenInformation}
+            className="flex h-9 items-center justify-center rounded-md bg-black text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+          >
+            Open information view
+          </button>
         </div>
 
         {saving && (
