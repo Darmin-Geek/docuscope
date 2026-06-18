@@ -20,7 +20,7 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Install OCRmyPDF so the OCR API route can shell out to it at runtime.
-RUN apt-get update && apt-get install -y ocrmypdf && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ocrmypdf poppler-utils && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies (devDependencies included — needed by `next dev`).
 # Copied first so the install layer is cached until the lockfile changes.
