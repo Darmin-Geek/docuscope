@@ -19,11 +19,17 @@ ENV PORT=3000
 # Bind to all interfaces so the dev server is reachable from the host.
 ENV HOSTNAME="0.0.0.0"
 
+# Install OCRmyPDF so the OCR API route can shell out to it at runtime.
+RUN apt-get update && apt-get install -y ocrmypdf && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies (devDependencies included — needed by `next dev`).
 # Copied first so the install layer is cached until the lockfile changes.
-COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
+COPY package.json package-lock.json* ./
+# COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
+
 # postinstall runs scripts/copy-pdfium.mjs, so scripts/ must exist before npm ci
 COPY scripts ./scripts
+
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=cache,target=/usr/local/share/.cache/yarn \
     --mount=type=cache,target=/root/.local/share/pnpm/store \
@@ -37,12 +43,13 @@ RUN --mount=type=cache,target=/root/.npm \
     echo "No lockfile found." && exit 1; \
   fi
 
-# Install OCRmyPDF so the OCR API route can shell out to it at runtime.
-RUN apt-get update && apt-get install -y ocrmypdf && rm -rf /var/lib/apt/lists/*
 
-# Copy source so the image runs standalone; docker-compose bind-mounts the
-# host source over this at runtime for live reload.
-COPY . .
+
+# # Copy source so the image runs standalone; docker-compose bind-mounts the
+# # host source over this at runtime for live reload.
+# COPY . .
+
+
 
 EXPOSE 3000
 

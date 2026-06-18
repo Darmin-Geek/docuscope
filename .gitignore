@@ -4,5 +4,8 @@
 .env.*
 !.env.example
 
+# Local PowerShell env setup script
+Set-DockerEnv.ps1
+
 # Claude Code agent worktrees
 .claude/

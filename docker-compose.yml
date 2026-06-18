@@ -28,28 +28,32 @@ services:
       NODE_ENV: development
       # --- Database: reach the `db` service over the compose network ---
       DB_HOST: db
-      DB_PORT: "5432"
+      DB_PORT: 5432
       DB_USER: docuscope
       DB_PASSWORD: docuscope
       DB_NAME: docuscope
       # Switches db.ts to a plain-password connection and enables the
       # verifyAuth test-bypass token. Debug/test ONLY — never set in production.
-      TEST_AUTH_SECRET: ${TEST_AUTH_SECRET:-local-debug-secret}
+      TEST_AUTH_SECRET: ${TEST_AUTH_SECRET}
       # --- AWS service config (non-secret identifiers; safe to default) ---
-      AWS_REGION: ${AWS_REGION:-us-east-2}
-      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-}
-      S3_ENDPOINT: ${S3_ENDPOINT:-}
-      COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID:-}
-      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
-      NEXT_PUBLIC_AWS_REGION: ${NEXT_PUBLIC_AWS_REGION:-us-east-2}
-      NEXT_PUBLIC_COGNITO_USER_POOL_ID: ${NEXT_PUBLIC_COGNITO_USER_POOL_ID:-}
-      NEXT_PUBLIC_COGNITO_CLIENT_ID: ${NEXT_PUBLIC_COGNITO_CLIENT_ID:-}
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      AWS_REGION: ${AWS_REGION}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID}
+      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID}
+      NEXT_PUBLIC_AWS_REGION: ${NEXT_PUBLIC_AWS_REGION}
+      NEXT_PUBLIC_COGNITO_USER_POOL_ID: ${NEXT_PUBLIC_COGNITO_USER_POOL_ID}
+      NEXT_PUBLIC_COGNITO_CLIENT_ID: ${NEXT_PUBLIC_COGNITO_CLIENT_ID}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
       # --- AWS credentials ---
       # Secrets are NOT placed here. The SDK's default provider chain reads them
       # at runtime from the read-only ~/.aws mount below. Optionally pick a
       # named profile from that file:
-      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_PROFILE: ${AWS_PROFILE}
+
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     volumes:
       # Live reload: host source shadows the image, but keep the image's
       # node_modules and .next (anonymous volumes) so host/container don't clash.
@@ -59,4 +63,4 @@ services:
       # AWS credentials mounted READ-ONLY from the host. They stay on the host:
       # never copied into image layers, the build cache, or `docker inspect`.
       # Override the source path with HOST_AWS_DIR if your config lives elsewhere.
-      - ${HOST_AWS_DIR:-${HOME}/.aws}:/root/.aws:ro
+      - ${HOST_AWS_DIR:-~/.aws}:/root/.aws:ro
