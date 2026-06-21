@@ -16,6 +16,8 @@ import {
   getFolders,
   getFolderFileIds,
   moveFile,
+  checkOcrStatus,
+  ocrFile,
   type FileDoc,
   type Folder,
   type Label,
@@ -132,11 +134,20 @@ export default function FileSidebar({
   const kind = previewKind(file.filename);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // Bumped to force the preview to re-fetch when the underlying S3 object is
+  // replaced in place (e.g. after OCR), which leaves the storage key unchanged.
+  const [previewRefresh, setPreviewRefresh] = useState(0);
 
   // Whether a download is in flight, used to disable the button so a slow
   // network can't kick off several fetches at once.
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // OCR state for the "OCR this PDF" button.
+  const [ocrState, setOcrState] = useState<
+    'idle' | 'checking' | 'confirming' | 'running' | 'done' | 'error'
+  >('idle');
+  const [ocrError, setOcrError] = useState<string | null>(null);
 
   // Fetch the file's bytes and save them under its original name. We download
   // the blob ourselves rather than linking straight to the storage URL because
@@ -236,6 +247,92 @@ export default function FileSidebar({
     }
   }
 
+  async function handleOcrClick() {
+    setOcrState('checking');
+    setOcrError(null);
+    try {
+      const { hasChunks, status } = await checkOcrStatus(projectId, file.id);
+      if (status === 'pending' || status === 'running') {
+        // A job is already in flight (e.g. started before this sidebar opened);
+        // just resume polling for it.
+        setOcrState('running');
+      } else if (hasChunks) {
+        setOcrState('confirming');
+      } else {
+        await runOcr();
+      }
+    } catch (err: unknown) {
+      setOcrError(err instanceof Error ? err.message : 'Failed to check OCR status.');
+      setOcrState('error');
+    }
+  }
+
+  // Enqueue the OCR job. The work runs in the background; the polling effect
+  // below drives the UI from 'running' to 'done'/'error'.
+  async function runOcr() {
+    setOcrState('running');
+    setOcrError(null);
+    try {
+      await ocrFile(projectId, file.id);
+    } catch (err: unknown) {
+      // A 409 means a job is already active — stay in 'running' and let polling
+      // pick it up. Anything else is a real failure.
+      if (err instanceof Error && err.message === 'Conflict') return;
+      setOcrError(err instanceof Error ? err.message : 'OCR failed.');
+      setOcrState('error');
+    }
+  }
+
+  // Poll job status while an OCR run is in flight. Converges the UI to
+  // 'done' (refreshing the preview, whose S3 object was replaced in place) or
+  // 'error'. Cleared on unmount or when we leave the 'running' state.
+  useEffect(() => {
+    if (ocrState !== 'running') return;
+    let active = true;
+    const interval = setInterval(async () => {
+      try {
+        const { status, error } = await checkOcrStatus(projectId, file.id);
+        if (!active) return;
+        if (status === 'done') {
+          setOcrState('done');
+          // Force the preview to reload — the S3 object was replaced in place,
+          // so the storage key is unchanged and the fetch effect needs an
+          // explicit nudge to request a fresh (cache-busting) signed URL.
+          setPreviewUrl(null);
+          setPreviewRefresh((n) => n + 1);
+        } else if (status === 'error') {
+          setOcrError(error ?? 'OCR failed.');
+          setOcrState('error');
+        }
+      } catch (err: unknown) {
+        if (!active) return;
+        setOcrError(err instanceof Error ? err.message : 'OCR failed.');
+        setOcrState('error');
+      }
+    }, 3000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [ocrState, projectId, file.id]);
+
+  // On open, resume tracking an OCR job that is already running for this PDF
+  // (e.g. started in a previous session) so the UI reflects in-flight work.
+  useEffect(() => {
+    if (kind !== 'pdf') return;
+    let active = true;
+    checkOcrStatus(projectId, file.id)
+      .then(({ status }) => {
+        if (active && (status === 'pending' || status === 'running')) {
+          setOcrState('running');
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [projectId, file.id, kind]);
+
   // Fetch a download URL for previewable files. The component is remounted per
   // file (keyed by id in the parent), so the URL state starts fresh each time;
   // the active guard just discards a response that resolves after unmount.
@@ -244,7 +341,10 @@ export default function FileSidebar({
     let active = true;
     getFileDownloadUrl(projectId, file.id)
       .then((url) => {
-        if (active) setPreviewUrl(url);
+        if (active) {
+          setPreviewUrl(url);
+          setPreviewError(null); // clear any stale error from a prior load
+        }
       })
       .catch((err: unknown) => {
         if (!active) return;
@@ -255,7 +355,7 @@ export default function FileSidebar({
     return () => {
       active = false;
     };
-  }, [file.storageReference, kind]);
+  }, [projectId, file.id, file.storageReference, kind, previewRefresh]);
 
   // When another editor releases the lock, fetch the latest saved values so
   // the form shows what they left behind before we start editing.
@@ -358,12 +458,17 @@ export default function FileSidebar({
     <>
     <aside className="flex w-96 shrink-0 flex-col border-l border-black/[.08] bg-zinc-50 dark:border-white/[.145] dark:bg-black">
       <header className="flex items-start justify-between gap-2 border-b border-black/[.08] p-4 dark:border-white/[.145]">
-        <h2
-          className="min-w-0 break-words text-lg font-semibold text-black dark:text-zinc-50"
-          title={file.filename}
-        >
-          {file.filename}
-        </h2>
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            File Details
+          </p>
+          <h2
+            className="min-w-0 break-words text-lg font-semibold text-black dark:text-zinc-50"
+            title={file.filename}
+          >
+            {file.filename}
+          </h2>
+        </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
@@ -515,22 +620,13 @@ export default function FileSidebar({
             />
           </label>
 
-          <button
-            type="button"
-            data-no-lock="true"
-            onClick={onOpenInformation}
-            className="flex h-9 items-center justify-center rounded-md bg-black text-sm font-medium text-white transition-colors hover:bg-zinc-800"
-          >
-            Open information view
-          </button>
-
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
-              Overall Bias
+              Source
             </span>
             <textarea
-              value={overallBias}
-              onChange={(event) => setOverallBias(event.target.value)}
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
               disabled={lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
@@ -539,11 +635,11 @@ export default function FileSidebar({
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
-              Source
+              Overall Bias
             </span>
             <textarea
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
+              value={overallBias}
+              onChange={(event) => setOverallBias(event.target.value)}
               disabled={lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
@@ -575,6 +671,15 @@ export default function FileSidebar({
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
           </label>
+
+          <button
+            type="button"
+            data-no-lock="true"
+            onClick={onOpenInformation}
+            className="flex h-9 items-center justify-center rounded-md bg-black text-sm font-medium text-white transition-colors hover:bg-zinc-800"
+          >
+            Open information view
+          </button>
         </div>
 
         {saving && (
@@ -590,15 +695,59 @@ export default function FileSidebar({
               Preview
             </span>
             {kind === "pdf" && (
-              <button
-                type="button"
-                onClick={onOpenPdfViewer}
-                className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
-              >
-                Open PDF viewer
-              </button>
+              <div className="flex items-center gap-2">
+                {ocrState === "confirming" ? (
+                  <div className="flex flex-col gap-1 text-xs text-zinc-700 dark:text-zinc-300">
+                    <p>This PDF already has extracted text. Running OCR will replace it.</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={runOcr}
+                        className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                      >
+                        Replace
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOcrState("idle")}
+                        className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleOcrClick}
+                    disabled={ocrState === "checking" || ocrState === "running"}
+                    className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                  >
+                    {ocrState === "checking"
+                      ? "Checking…"
+                      : ocrState === "running"
+                      ? "Running OCR…"
+                      : "OCR this PDF"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onOpenPdfViewer}
+                  className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                >
+                  Open PDF viewer
+                </button>
+              </div>
             )}
           </div>
+
+          {ocrState === "done" && (
+            <p className="text-xs text-green-600 dark:text-green-400">OCR complete.</p>
+          )}
+          {ocrState === "error" && ocrError && (
+            <p className="text-xs text-red-600 dark:text-red-400">{ocrError}</p>
+          )}
+
           {kind === "unsupported" ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Preview not implemented yet for this file type

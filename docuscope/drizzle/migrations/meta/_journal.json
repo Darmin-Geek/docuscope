@@ -33,8 +33,15 @@
     {
       "idx": 4,
       "version": "7",
+      "when": 1781552573300,
+      "tag": "0004_ocr_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
       "when": 1750163200000,
-      "tag": "0004_information_fts",
+      "tag": "0005_information_fts",
       "breakpoints": true
     }
   ]

@@ -362,12 +362,17 @@ function ViewerBody({
           height so the viewport below gets a real (non-zero) height to fill. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-2 border-b border-black/[.08] px-4 py-3 dark:border-white/[.145]">
-          <h2
-            className="min-w-0 truncate text-sm font-semibold text-black dark:text-zinc-50"
-            title={file.filename}
-          >
-            {file.filename}
-          </h2>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              PDF Viewer
+            </p>
+            <h2
+              className="min-w-0 truncate text-sm font-semibold text-black dark:text-zinc-50"
+              title={file.filename}
+            >
+              {file.filename}
+            </h2>
+          </div>
           <button
             type="button"
             onClick={onClose}

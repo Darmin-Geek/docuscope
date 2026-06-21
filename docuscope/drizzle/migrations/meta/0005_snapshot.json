@@ -1,6 +1,6 @@
 {
-  "id": "a4b1c0d2-3e4f-4a5b-9c6d-7e8f90123456",
-  "prevId": "8ed5c9b6-05fe-4b73-8d58-31a21688110d",
+  "id": "c5d7e291-82f1-4b90-9c3a-fe4d8b021765",
+  "prevId": "a4b1c0d2-3e4f-4a5b-9c6d-7e8f90123456",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -550,9 +550,135 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "title_tsv": {
+          "name": "title_tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "to_tsvector('english', coalesce(information_title, ''))",
+            "type": "stored"
+          }
+        },
+        "text_tsv": {
+          "name": "text_tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "to_tsvector('english', coalesce(information_text, ''))",
+            "type": "stored"
+          }
+        },
+        "overall_bias_tsv": {
+          "name": "overall_bias_tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "to_tsvector('english', coalesce(overall_bias, ''))",
+            "type": "stored"
+          }
+        },
+        "reliability_tsv": {
+          "name": "reliability_tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "to_tsvector('english', coalesce(information_reliability, ''))",
+            "type": "stored"
+          }
+        },
+        "credibility_tsv": {
+          "name": "credibility_tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "to_tsvector('english', coalesce(information_credibility, ''))",
+            "type": "stored"
+          }
         }
       },
-      "indexes": {},
+      "indexes": {
+        "information_title_tsv_idx": {
+          "name": "information_title_tsv_idx",
+          "columns": [
+            {
+              "expression": "title_tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "information_text_tsv_idx": {
+          "name": "information_text_tsv_idx",
+          "columns": [
+            {
+              "expression": "text_tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "information_overall_bias_tsv_idx": {
+          "name": "information_overall_bias_tsv_idx",
+          "columns": [
+            {
+              "expression": "overall_bias_tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "information_reliability_tsv_idx": {
+          "name": "information_reliability_tsv_idx",
+          "columns": [
+            {
+              "expression": "reliability_tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "information_credibility_tsv_idx": {
+          "name": "information_credibility_tsv_idx",
+          "columns": [
+            {
+              "expression": "credibility_tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "information_file_id_files_id_fk": {
           "name": "information_file_id_files_id_fk",

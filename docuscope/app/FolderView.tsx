@@ -122,6 +122,11 @@ useEffect(() => {
 
   return (
     <aside className="flex w-1/4 min-w-56 flex-col border-r border-black/[.08] dark:border-white/[.145]">
+      <header className="border-b border-black/[.08] px-3 pb-2 pt-3 dark:border-white/[.145]">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          Folders
+        </h2>
+      </header>
       <div className="flex flex-col gap-2 border-b border-black/[.08] p-3 dark:border-white/[.145]">
         <button
           type="button"
