@@ -109,8 +109,10 @@ export default function FileSidebar({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The shared lock state (who, if anyone else, currently holds the file).
-  const { lockedByOther, editorName } = lock;
+  // The shared lock state. `isHeldByMe` is true once this user has explicitly
+  // checked the file out via the toolbar button; the detail fields are editable
+  // only then. `lockedByOther` means a different user holds it.
+  const { lockedByOther, isHeldByMe, editorName } = lock;
 
   // Whether *we* are currently editing these file-detail fields (between
   // focusing a field and focus leaving the group). A ref so the live
@@ -385,36 +387,14 @@ export default function FileSidebar({
     if (lockedByOther) editingFields.current = false;
   }, [lockedByOther]);
 
-  // Claim the lock the first time the user focuses a field. Skipped when
-  // someone else holds it (their fields are disabled, so this can't fire) or
-  // when we are already editing.
-  function claimLock() {
-    if (editingFields.current || lockedByOther) return;
-    editingFields.current = true;
-    lock.acquire();
-  }
-
-  // The "open information view" button sits inside the field group for layout
-  // only; focusing or clicking it must not check the file out.
-  function handleGroupFocus(event: FocusEvent<HTMLDivElement>) {
-    if ((event.target as HTMLElement).dataset.noLock != null) return;
-    claimLock();
-  }
-
-  // Release the lock once focus leaves the whole field group. `handleGroupBlur`
-  // first saves the edit, so the latest text is in Firestore before the lock
-  // frees and other users' screens update.
-  function releaseLock() {
-    if (!editingFields.current) return;
-    editingFields.current = false;
-    lock.release();
-  }
-
+  // Check-out is now manual (the toolbar button), so focusing a field no longer
+  // acquires the lock. Focus leaving the field group still saves the latest text
+  // so edits persist without an explicit save, but the lock stays held until the
+  // user checks the file back in.
   function handleGroupBlur(event: FocusEvent<HTMLDivElement>) {
     // Ignore blurs that just move focus between fields within the group.
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     void handleSave();
-    releaseLock();
   }
 
   // Trim and collapse a blank field to null so cleared values are stored as
@@ -470,6 +450,17 @@ export default function FileSidebar({
           </h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {/* Manual check-out: acquire the lock to edit, release it to let other
+              contributors in. Disabled (greyed) while another user holds it —
+              the amber banner below names who. */}
+          <button
+            type="button"
+            onClick={() => (isHeldByMe ? lock.release() : lock.acquire())}
+            disabled={lockedByOther}
+            className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+          >
+            {isHeldByMe ? "Check In" : "Check Out"}
+          </button>
           <button
             type="button"
             onClick={() => void handleDownload()}
@@ -546,7 +537,7 @@ export default function FileSidebar({
                 <button
                   type="button"
                   onClick={() => void handleRemoveLabel(label.id)}
-                  disabled={lockedByOther}
+                  disabled={!isHeldByMe || lockedByOther}
                   aria-label={`Remove ${label.label}`}
                   className="leading-none opacity-70 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
                 >
@@ -558,7 +549,7 @@ export default function FileSidebar({
               <button
                 type="button"
                 onClick={() => setPickingLabel((open) => !open)}
-                disabled={lockedByOther}
+                disabled={!isHeldByMe || lockedByOther}
                 className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
               >
                 + Label
@@ -586,11 +577,11 @@ export default function FileSidebar({
           <p className="text-xs text-red-600 dark:text-red-400">{moveError}</p>
         )}
 
-        {/* The text-entry fields share one focus/blur boundary: focusing any of
-            them checks the file out to this user, and focus leaving the whole
-            group saves and checks it back in. While another user holds the lock
-            every field is disabled and greyed out. */}
-        <div className="contents" onFocus={handleGroupFocus} onBlur={handleGroupBlur}>
+        {/* The text-entry fields share one blur boundary: focus leaving the whole
+            group saves the latest text. Editing requires the file to be checked
+            out to this user (the toolbar button); every field is disabled and
+            greyed out otherwise. */}
+        <div className="contents" onBlur={handleGroupBlur}>
           <label className="flex items-center gap-2">
             <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
               Author
@@ -600,7 +591,7 @@ export default function FileSidebar({
               value={author}
               onChange={(event) => setAuthor(event.target.value)}
               onKeyDown={handleInputKeyDown}
-              disabled={lockedByOther}
+              disabled={!isHeldByMe || lockedByOther}
               placeholder="Unknown"
               className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
@@ -615,7 +606,7 @@ export default function FileSidebar({
               value={dateValue}
               onChange={(event) => setDateValue(event.target.value)}
               onKeyDown={handleInputKeyDown}
-              disabled={lockedByOther}
+              disabled={!isHeldByMe || lockedByOther}
               className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
             />
           </label>
@@ -627,7 +618,7 @@ export default function FileSidebar({
             <textarea
               value={source}
               onChange={(event) => setSource(event.target.value)}
-              disabled={lockedByOther}
+              disabled={!isHeldByMe || lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
@@ -640,7 +631,7 @@ export default function FileSidebar({
             <textarea
               value={overallBias}
               onChange={(event) => setOverallBias(event.target.value)}
-              disabled={lockedByOther}
+              disabled={!isHeldByMe || lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
@@ -653,7 +644,7 @@ export default function FileSidebar({
             <textarea
               value={reliability}
               onChange={(event) => setReliability(event.target.value)}
-              disabled={lockedByOther}
+              disabled={!isHeldByMe || lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
@@ -666,7 +657,7 @@ export default function FileSidebar({
             <textarea
               value={credibility}
               onChange={(event) => setCredibility(event.target.value)}
-              disabled={lockedByOther}
+              disabled={!isHeldByMe || lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />

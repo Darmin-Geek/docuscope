@@ -180,7 +180,7 @@ function ViewerBody({
   initialInformationId,
   onClose,
 }: ViewerBodyProps) {
-  const { lockedByOther, editorName } = lock;
+  const { lockedByOther, isHeldByMe, editorName } = lock;
   const selectionApi = useSelectionCapability().provides;
   const scrollApi = useScrollCapability().provides;
 
@@ -203,28 +203,9 @@ function ViewerBody({
   // once both the selections and the page layout are ready.
   const pendingInitialScroll = useRef(initialInformationId != null);
 
-  // Lazily check the file out the first time the user edits selections, and
-  // release it when the modal unmounts (mirrors InformationSidebar's lock use).
-  const holdingLock = useRef(false);
-  const releaseRef = useRef(lock.release);
-  useEffect(() => {
-    releaseRef.current = lock.release;
-  });
-  useEffect(() => {
-    return () => {
-      if (holdingLock.current) {
-        holdingLock.current = false;
-        releaseRef.current();
-      }
-    };
-  }, []);
-  function claimLock() {
-    if (holdingLock.current || lockedByOther) return false;
-    holdingLock.current = true;
-    lock.acquire();
-    return true;
-  }
-
+  // Check-out is now manual (the File Details toolbar button); marking and
+  // deleting selections is gated on this user already holding the lock
+  // (`isHeldByMe`) rather than acquiring it implicitly here.
   const refreshSelections = useCallback(
     (infoId: string) =>
       getSelections(projectId, file.id, infoId).then((rows) => {
@@ -274,10 +255,9 @@ function ViewerBody({
   }, [selectionApi]);
 
   async function handleMark() {
-    if (!selectionApi || activeId == null || lockedByOther) return;
+    if (!selectionApi || activeId == null || !isHeldByMe || lockedByOther) return;
     const formatted = selectionApi.getFormattedSelection(DOC_ID);
     if (formatted.length === 0) return;
-    claimLock();
     setBusy(true);
     setError(null);
     try {
@@ -315,8 +295,7 @@ function ViewerBody({
   }
 
   async function handleDeleteSelection(selectionId: string) {
-    if (activeId == null || lockedByOther) return;
-    claimLock();
+    if (activeId == null || !isHeldByMe || lockedByOther) return;
     setBusy(true);
     setError(null);
     try {
@@ -391,7 +370,7 @@ function ViewerBody({
             type="button"
             onClick={() => void handleMark()}
             disabled={
-              activeId == null || !hasLiveSelection || lockedByOther || busy
+              activeId == null || !hasLiveSelection || !isHeldByMe || lockedByOther || busy
             }
             className="flex h-8 items-center justify-center rounded-md bg-black px-3 text-xs font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -427,7 +406,7 @@ function ViewerBody({
                 <button
                   type="button"
                   onClick={() => void handleDeleteSelection(currentSelection.id)}
-                  disabled={lockedByOther || busy}
+                  disabled={!isHeldByMe || lockedByOther || busy}
                   className="flex h-8 items-center justify-center rounded-md border border-black/[.08] px-3 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[.145] dark:text-red-400 dark:hover:bg-red-500/10"
                 >
                   Delete current selection

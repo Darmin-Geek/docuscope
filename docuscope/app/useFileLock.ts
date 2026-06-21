@@ -6,6 +6,8 @@ import { getUserProfile } from "@/lib/users";
 
 export type FileLock = {
   lockedByOther: boolean;
+  // True when this user currently holds the file's check-out lock.
+  isHeldByMe: boolean;
   editorName: string | null;
   acquire: () => void;
   release: () => void;
@@ -27,6 +29,7 @@ export function useFileLock(
   const holding = useRef(false);
 
   const lockedByOther = checkedOutBy != null && checkedOutBy !== userId;
+  const isHeldByMe = checkedOutBy === userId;
   const editorName = editor?.uid === checkedOutBy ? editor.name : null;
 
   // On file change: fetch once to get the initial checkedOutBy and reset local lock state.
@@ -117,5 +120,5 @@ export function useFileLock(
     };
   }, [projectId, fileId]);
 
-  return { lockedByOther, editorName, acquire, release };
+  return { lockedByOther, isHeldByMe, editorName, acquire, release };
 }

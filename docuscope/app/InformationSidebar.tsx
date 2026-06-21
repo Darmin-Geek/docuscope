@@ -65,7 +65,7 @@ export default function InformationSidebar({
   initialSelectedId = null,
   onSelectedIdChange,
 }: InformationSidebarProps) {
-  const { lockedByOther, editorName } = lock;
+  const { lockedByOther, isHeldByMe, editorName } = lock;
   const embedded = variant === "embedded";
 
   const [items, setItems] = useState<Information[]>([]);
@@ -141,21 +141,6 @@ export default function InformationSidebar({
     void refreshItems();
   }, [refreshItems]);
 
-  // Release the file lock if the panel unmounts while we still hold it (e.g. the
-  // user closes the view mid-edit), so the file doesn't stay checked out.
-  const releaseRef = useRef(lock.release);
-  useEffect(() => {
-    releaseRef.current = lock.release;
-  });
-  useEffect(() => {
-    return () => {
-      if (editingInfo.current) {
-        editingInfo.current = false;
-        releaseRef.current();
-      }
-    };
-  }, []);
-
   // Load the selected entry's saved values into the form. Skipped while we are
   // editing (so we don't clobber typing). If the open entry disappears (deleted
   // by another user) `selectedItem` becomes null, which closes the editor on its
@@ -212,27 +197,12 @@ export default function InformationSidebar({
       });
   }
 
-  // Claim the lock when the form gains focus, releasing it once focus leaves the
-  // whole group (after saving). Checking the file out here is what stops other
-  // users from touching the file's details while information is being entered.
-  function claimLock() {
-    if (editingInfo.current || lockedByOther) return;
-    editingInfo.current = true;
-    lock.acquire();
-  }
-
-  function releaseLock() {
-    if (!editingInfo.current) return;
-    editingInfo.current = false;
-    lock.release();
-  }
-
-  // Closing while a field is focused can't rely on the editor's blur firing
-  // (the inputs unmount), so save and release here before closing the panel.
+  // Check-out is now manual (the File Details toolbar button), so editing here no
+  // longer acquires or releases the lock. Closing while a field is focused can't
+  // rely on the editor's blur firing (the inputs unmount), so save here first.
   function handleClose() {
-    if (editingInfo.current) {
+    if (isHeldByMe) {
       void handleSave();
-      releaseLock();
     }
     onClose();
   }
@@ -241,7 +211,6 @@ export default function InformationSidebar({
     // Ignore blurs that just move focus between fields within the group.
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     void handleSave();
-    releaseLock();
   }
 
   async function handleSave() {
@@ -355,7 +324,7 @@ export default function InformationSidebar({
                     <button
                       type="button"
                       onClick={() => setDeleteTarget(item)}
-                      disabled={lockedByOther}
+                      disabled={!isHeldByMe || lockedByOther}
                       aria-label={`Delete ${item.informationTitle || "Untitled"}`}
                       className="shrink-0 leading-none text-zinc-400 transition-colors hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-zinc-400 dark:text-zinc-500 dark:hover:text-zinc-300"
                     >
@@ -370,7 +339,7 @@ export default function InformationSidebar({
             <button
               type="button"
               onClick={startNew}
-              disabled={lockedByOther}
+              disabled={!isHeldByMe || lockedByOther}
               className="flex h-8 w-full items-center justify-center rounded-md border border-dashed border-black/[.25] text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
             >
               + Add New Information
@@ -392,7 +361,6 @@ export default function InformationSidebar({
             )}
             <div
               className="flex flex-col gap-3"
-              onFocus={claimLock}
               onBlur={handleGroupBlur}
             >
               <label className="flex flex-col gap-1">
@@ -404,7 +372,7 @@ export default function InformationSidebar({
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   onKeyDown={handleTitleKeyDown}
-                  disabled={lockedByOther}
+                  disabled={!isHeldByMe || lockedByOther}
                   placeholder="Untitled"
                   className="h-7 min-w-0 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
                 />
@@ -417,7 +385,7 @@ export default function InformationSidebar({
                 <textarea
                   value={text}
                   onChange={(event) => setText(event.target.value)}
-                  disabled={lockedByOther}
+                  disabled={!isHeldByMe || lockedByOther}
                   rows={4}
                   className={fieldClass}
                 />
@@ -430,7 +398,7 @@ export default function InformationSidebar({
                 <textarea
                   value={bias}
                   onChange={(event) => setBias(event.target.value)}
-                  disabled={lockedByOther}
+                  disabled={!isHeldByMe || lockedByOther}
                   rows={3}
                   className={fieldClass}
                 />
@@ -443,7 +411,7 @@ export default function InformationSidebar({
                 <textarea
                   value={reliability}
                   onChange={(event) => setReliability(event.target.value)}
-                  disabled={lockedByOther}
+                  disabled={!isHeldByMe || lockedByOther}
                   rows={3}
                   className={fieldClass}
                 />
@@ -456,7 +424,7 @@ export default function InformationSidebar({
                 <textarea
                   value={credibility}
                   onChange={(event) => setCredibility(event.target.value)}
-                  disabled={lockedByOther}
+                  disabled={!isHeldByMe || lockedByOther}
                   rows={3}
                   className={fieldClass}
                 />
