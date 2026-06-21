@@ -55,11 +55,24 @@ export async function insertChunks(
 /** Create a minimal information record for a file. Returns the information id. */
 export async function createTestInformation(
   fileId: string,
-  options: { informationTitle?: string } = {},
+  options: {
+    informationTitle?: string;
+    informationText?: string | null;
+    overallBias?: string | null;
+    informationReliability?: string | null;
+    informationCredibility?: string | null;
+  } = {},
 ): Promise<string> {
   const [row] = await db
     .insert(information)
-    .values({ fileId, informationTitle: options.informationTitle ?? 'Test Information' })
+    .values({
+      fileId,
+      informationTitle: options.informationTitle ?? 'Test Information',
+      informationText: options.informationText ?? null,
+      overallBias: options.overallBias ?? null,
+      informationReliability: options.informationReliability ?? null,
+      informationCredibility: options.informationCredibility ?? null,
+    })
     .returning({ id: information.id });
   return row.id;
 }

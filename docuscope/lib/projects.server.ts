@@ -322,9 +322,10 @@ export async function moveFile(
 // ── files ────────────────────────────────────────────────────────────────────
 
 function ftsCondition(q: string) {
-  // A file matches if any of its metadata tsvectors match, or if any of its
-  // text chunks match. The chunk match is an EXISTS subquery so a file is
-  // surfaced once regardless of how many chunks matched.
+  // A file matches if any of its metadata tsvectors match, if any of its text
+  // chunks match, or if any of its information entries match. The chunk and
+  // information matches use EXISTS subqueries so a file is surfaced once
+  // regardless of how many rows matched.
   return or(
     sql`(
       ${filesTable.authorTsv} ||
@@ -337,6 +338,17 @@ function ftsCondition(q: string) {
       SELECT 1 FROM ${fileChunks}
       WHERE ${fileChunks.fileId} = ${filesTable.id}
         AND ${fileChunks.contentTsv} @@ plainto_tsquery('english', ${q})
+    )`,
+    sql`EXISTS (
+      SELECT 1 FROM ${informationTable}
+      WHERE ${informationTable.fileId} = ${filesTable.id}
+        AND (
+          ${informationTable.titleTsv} ||
+          ${informationTable.textTsv} ||
+          ${informationTable.overallBiasTsv} ||
+          ${informationTable.reliabilityTsv} ||
+          ${informationTable.credibilityTsv}
+        ) @@ plainto_tsquery('english', ${q})
     )`,
   );
 }
