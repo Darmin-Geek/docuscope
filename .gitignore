@@ -1,0 +1,11 @@
+# Local docker-compose overrides. Compose auto-loads a root `.env`, so keep it
+# out of git to avoid committing AWS config/secrets. Commit `.env.example` only.
+.env
+.env.*
+!.env.example
+
+# Local PowerShell env setup script
+Set-DockerEnv.ps1
+
+# Claude Code agent worktrees
+.claude/

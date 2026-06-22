@@ -25,6 +25,7 @@
     "@aws-sdk/s3-request-presigner": "^3.816.0",
     "@embedpdf/core": "^2.14.4",
     "@embedpdf/engines": "^2.14.4",
+    "@embedpdf/pdfium": "^2.14.4",
     "@embedpdf/plugin-document-manager": "^2.14.4",
     "@embedpdf/plugin-interaction-manager": "^2.14.4",
     "@embedpdf/plugin-render": "^2.14.4",
@@ -53,8 +54,13 @@
     "drizzle-kit": "^0.31.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
+    "lightningcss-linux-x64-gnu": "^1.32.0",
     "playwright": "^1.60.0",
+    "postcss-lightningcss": "^1.1.0",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "lightningcss-linux-x64-gnu": "^1.29.1"
   }
 }

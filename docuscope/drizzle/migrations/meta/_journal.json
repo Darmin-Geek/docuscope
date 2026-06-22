@@ -36,6 +36,13 @@
       "when": 1781720061906,
       "tag": "0004_brainy_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781552573300,
+      "tag": "0006_ocr_jobs",
+      "breakpoints": true
     }
   ]
 }

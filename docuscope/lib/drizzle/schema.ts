@@ -10,6 +10,7 @@ import {
   primaryKey,
   customType,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -115,6 +116,34 @@ export const fileChunks = pgTable(
   (t) => [
     index('file_chunks_content_tsv_idx').using('gin', t.contentTsv),
     index('file_chunks_file_id_idx').on(t.fileId),
+  ],
+);
+
+// Tracks an asynchronous "OCR this PDF" run for a file. OCR is slow (it shells
+// out to ocrmypdf), so the request enqueues a job here and returns immediately;
+// the work runs detached and updates this row, which the client polls.
+// Timestamps are epoch milliseconds (matching `files.created_date`), set by the
+// app so the stale-job reaper can compare against `Date.now()`.
+export const ocrJobs = pgTable(
+  'ocr_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    // pending | running | done | error
+    status: text('status').notNull().default('pending'),
+    error: text('error'),
+    startedAt: bigint('started_at', { mode: 'number' }),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (t) => [
+    // At most one active (pending/running) job per file — guards against
+    // double-OCR from a double click or concurrent requests.
+    uniqueIndex('ocr_jobs_one_active_per_file')
+      .on(t.fileId)
+      .where(sql`status in ('pending', 'running')`),
+    index('ocr_jobs_file_id_idx').on(t.fileId),
   ],
 );
 

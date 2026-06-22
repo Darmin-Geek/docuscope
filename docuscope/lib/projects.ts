@@ -258,6 +258,36 @@ export async function getFileDownloadUrl(projectId: string, fileId: string): Pro
   return url;
 }
 
+// Status of an asynchronous OCR job. `null` status means no job has ever run
+// for the file. OCR runs in the background, so the UI starts a job and polls.
+export type OcrJobStatus = 'pending' | 'running' | 'done' | 'error';
+
+export interface OcrStatus {
+  hasChunks: boolean;
+  status: OcrJobStatus | null;
+  error: string | null;
+}
+
+export async function checkOcrStatus(
+  projectId: string,
+  fileId: string,
+): Promise<OcrStatus> {
+  return api<OcrStatus>(`/api/projects/${projectId}/files/${fileId}/ocr`);
+}
+
+// Enqueues an OCR job and returns immediately; the work runs in the background.
+// Poll checkOcrStatus to observe progress. A 409 ("Conflict") means a job is
+// already in progress for this file.
+export async function ocrFile(
+  projectId: string,
+  fileId: string,
+): Promise<{ jobId: string; status: OcrJobStatus }> {
+  return api<{ jobId: string; status: OcrJobStatus }>(
+    `/api/projects/${projectId}/files/${fileId}/ocr`,
+    { method: 'POST' },
+  );
+}
+
 // ── information ───────────────────────────────────────────────────────────────
 
 export async function getInformation(
