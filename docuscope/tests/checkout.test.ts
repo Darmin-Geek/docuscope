@@ -246,7 +246,17 @@ test.describe("File check-out", () => {
       async ({ bearer, projectId, fileId, secret }) => {
         // A different user grabs the lock first.
         const otherUid = `other-${Date.now()}`;
-        const otherToken = `test:${secret}:${otherUid}:${otherUid}@test.com`;
+        const otherEmail = `${otherUid}@test.com`;
+        const otherToken = `test:${secret}:${otherUid}:${otherEmail}`;
+        // The other user must be a contributor or requireContributor blocks the checkout.
+        await fetch(`/api/projects/${projectId}/contributors`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${bearer}`,
+          },
+          body: JSON.stringify({ email: otherEmail }),
+        });
         await fetch(`/api/projects/${projectId}/files/${fileId}/checkout`, {
           method: "POST",
           headers: { Authorization: `Bearer ${otherToken}` },
@@ -339,7 +349,7 @@ async function addContributor(page: Page, email: string): Promise<void> {
   await page.getByRole("button", { name: "Add", exact: true }).click();
   // The added contributor appears in the list once the write completes.
   await expect(page.getByText(normalized, { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Close" }).nth(1).click();
   await expect(
     page.getByRole("heading", { name: "Project Settings" }),
   ).toBeHidden();
