@@ -30,6 +30,7 @@ import {
   getFileDownloadUrl,
   getSelections,
   type FileDoc,
+  type Label,
   type Selection,
 } from "@/lib/projects";
 import type { FileLock } from "./useFileLock";
@@ -41,6 +42,9 @@ const DOC_ID = "doc";
 type PdfViewerModalProps = {
   projectId: string;
   file: FileDoc;
+  // The project's 'information'-kind labels, forwarded to the embedded
+  // InformationSidebar so labels can be assigned while reading the PDF.
+  labels: Label[];
   // The file's shared check-out lock. Creating or deleting a selection is a
   // content edit, so it goes through the same lock as information editing: the
   // first edit checks the file out, and the lock is released when the modal
@@ -55,6 +59,7 @@ type PdfViewerModalProps = {
 export default function PdfViewerModal({
   projectId,
   file,
+  labels,
   lock,
   initialInformationId,
   onClose,
@@ -158,6 +163,7 @@ export default function PdfViewerModal({
             <ViewerBody
               projectId={projectId}
               file={file}
+              labels={labels}
               lock={lock}
               initialInformationId={initialInformationId}
               onClose={onClose}
@@ -176,6 +182,7 @@ type ViewerBodyProps = Omit<PdfViewerModalProps, "lock"> & { lock: FileLock };
 function ViewerBody({
   projectId,
   file,
+  labels,
   lock,
   initialInformationId,
   onClose,
@@ -326,6 +333,7 @@ function ViewerBody({
       <InformationSidebar
         projectId={projectId}
         file={file}
+        labels={labels}
         lock={lock}
         // Already inside the PDF viewer, so no "open in PDF viewer" affordance.
         canOpenPdf={false}

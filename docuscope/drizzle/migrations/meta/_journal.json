@@ -43,6 +43,13 @@
       "when": 1750163200000,
       "tag": "0005_information_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782234625428,
+      "tag": "0006_shocking_hardball",
+      "breakpoints": true
     }
   ]
 }

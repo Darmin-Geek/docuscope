@@ -8,6 +8,7 @@ import {
   files as filesTable,
   fileChunks,
   fileLabels,
+  informationLabels,
   fileFolders,
   information as informationTable,
   informationSelections as selectionsTable,
@@ -19,6 +20,7 @@ import type {
   Folder,
   FileDoc,
   Label,
+  LabelKind,
   Information,
   InformationFields,
   Selection,
@@ -26,11 +28,17 @@ import type {
   OcrJobStatus,
 } from './projects';
 
-const DEFAULT_LABELS = [
-  { label: 'Not started', color: '#9ca3af' },
-  { label: 'Not Reviewed', color: '#f59e0b' },
+// Labels seeded into every new project. File labels apply to whole files;
+// information labels apply to individual pieces of information (see issue #75).
+const DEFAULT_FILE_LABELS = [
   { label: 'Done', color: '#22c55e' },
-  { label: 'Dead end', color: '#ef4444' },
+];
+
+const DEFAULT_INFORMATION_LABELS = [
+  { label: 'Fact', color: '#22c55e' },
+  { label: 'Opinion', color: '#3b82f6' },
+  { label: 'Misinformation', color: '#f59e0b' },
+  { label: 'Disinformation', color: '#ef4444' },
 ];
 
 // ── text chunking ──────────────────────────────────────────────────────────────
@@ -163,9 +171,14 @@ export async function createProject(
     contributors.map((email) => ({ projectId: project.id, email })),
   );
 
-  await db.insert(labelsTable).values(
-    DEFAULT_LABELS.map((l) => ({ projectId: project.id, ...l })),
-  );
+  await db.insert(labelsTable).values([
+    ...DEFAULT_FILE_LABELS.map((l) => ({ projectId: project.id, ...l, kind: 'file' })),
+    ...DEFAULT_INFORMATION_LABELS.map((l) => ({
+      projectId: project.id,
+      ...l,
+      kind: 'information',
+    })),
+  ]);
 
   return project.id;
 }
@@ -642,6 +655,25 @@ export async function getInformation(
     .select()
     .from(informationTable)
     .where(eq(informationTable.fileId, fileId));
+
+  // Attach assigned label ids, grouped by information row (mirrors attachLabels).
+  const labelMap = new Map<string, string[]>();
+  if (rows.length > 0) {
+    const ids = rows.map((r) => r.id);
+    const labelRows = await db
+      .select({
+        informationId: informationLabels.informationId,
+        labelId: informationLabels.labelId,
+      })
+      .from(informationLabels)
+      .where(inArray(informationLabels.informationId, ids));
+    for (const r of labelRows) {
+      const arr = labelMap.get(r.informationId) ?? [];
+      arr.push(r.labelId);
+      labelMap.set(r.informationId, arr);
+    }
+  }
+
   return rows.map((r) => ({
     id: r.id,
     informationTitle: r.informationTitle,
@@ -649,6 +681,7 @@ export async function getInformation(
     overallBias: r.overallBias,
     informationReliability: r.informationReliability,
     informationCredibility: r.informationCredibility,
+    labels: labelMap.get(r.id) ?? [],
   }));
 }
 
@@ -797,20 +830,26 @@ export async function getLabels(projectId: string): Promise<Label[]> {
     .select()
     .from(labelsTable)
     .where(eq(labelsTable.projectId, projectId));
-  return rows.map((r) => ({ id: r.id, label: r.label, color: r.color }));
+  return rows.map((r) => ({
+    id: r.id,
+    label: r.label,
+    color: r.color,
+    kind: r.kind as LabelKind,
+  }));
 }
 
 export async function createLabel(
   projectId: string,
   label: string,
   color: string,
+  kind: LabelKind = 'file',
 ): Promise<Label> {
   const trimmed = label.trim();
   const [row] = await db
     .insert(labelsTable)
-    .values({ projectId, label: trimmed, color })
+    .values({ projectId, label: trimmed, color, kind })
     .returning();
-  return { id: row.id, label: row.label, color: row.color };
+  return { id: row.id, label: row.label, color: row.color, kind: row.kind as LabelKind };
 }
 
 export async function updateLabel(
@@ -850,4 +889,34 @@ export async function removeLabelFromFile(
   await db
     .delete(fileLabels)
     .where(and(eq(fileLabels.fileId, fileId), eq(fileLabels.labelId, labelId)));
+}
+
+export async function addLabelToInformation(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  labelId: string,
+): Promise<void> {
+  await requireInformation(projectId, fileId, informationId);
+  await db
+    .insert(informationLabels)
+    .values({ informationId, labelId })
+    .onConflictDoNothing();
+}
+
+export async function removeLabelFromInformation(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  labelId: string,
+): Promise<void> {
+  await requireInformation(projectId, fileId, informationId);
+  await db
+    .delete(informationLabels)
+    .where(
+      and(
+        eq(informationLabels.informationId, informationId),
+        eq(informationLabels.labelId, labelId),
+      ),
+    );
 }
