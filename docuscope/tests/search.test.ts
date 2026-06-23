@@ -6,6 +6,7 @@ import {
   createTestProject,
   createTestFile,
   createTestFolder,
+  createTestInformation,
   insertChunks,
 } from "./db-helpers";
 
@@ -149,6 +150,50 @@ test.describe("getFiles — full-text search", () => {
     ]);
 
     const results = await getFiles(projectId, null, "gravitational");
+
+    expect(results.map((f) => f.id)).toEqual([fileId]);
+  });
+
+  test("matches on information title", async () => {
+    const projectId = await createTestProject();
+    const fileId = await createTestFile(projectId, { filename: "analysis.pdf" });
+    await createTestInformation(fileId, {
+      informationTitle: "Quantitative easing overview",
+    });
+    await createTestFile(projectId, { filename: "other.pdf" });
+
+    const results = await getFiles(projectId, null, "quantitative");
+
+    expect(results.map((f) => f.id)).toContain(fileId);
+    expect(results).toHaveLength(1);
+  });
+
+  test("matches on information text body", async () => {
+    const projectId = await createTestProject();
+    const fileId = await createTestFile(projectId, { filename: "notes.pdf" });
+    await createTestInformation(fileId, {
+      informationTitle: "Key finding",
+      informationText: "The mitochondria is the powerhouse of the cell.",
+    });
+    await createTestFile(projectId, { filename: "unrelated.pdf" });
+
+    const results = await getFiles(projectId, null, "mitochondria");
+
+    expect(results.map((f) => f.id)).toContain(fileId);
+    expect(results).toHaveLength(1);
+  });
+
+  test("surfaces a file once even when multiple information entries match", async () => {
+    const projectId = await createTestProject();
+    const fileId = await createTestFile(projectId, { filename: "multi.pdf" });
+    await createTestInformation(fileId, {
+      informationTitle: "First neuroplasticity note",
+    });
+    await createTestInformation(fileId, {
+      informationTitle: "Second neuroplasticity finding",
+    });
+
+    const results = await getFiles(projectId, null, "neuroplasticity");
 
     expect(results.map((f) => f.id)).toEqual([fileId]);
   });

@@ -173,17 +173,43 @@ export const fileFolders = pgTable(
   (t) => [primaryKey({ columns: [t.fileId, t.folderId] })],
 );
 
-export const information = pgTable('information', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  fileId: uuid('file_id')
-    .notNull()
-    .references(() => files.id, { onDelete: 'cascade' }),
-  informationTitle: text('information_title').notNull().default(''),
-  informationText: text('information_text'),
-  overallBias: text('overall_bias'),
-  informationReliability: text('information_reliability'),
-  informationCredibility: text('information_credibility'),
-});
+export const information = pgTable(
+  'information',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    informationTitle: text('information_title').notNull().default(''),
+    informationText: text('information_text'),
+    overallBias: text('overall_bias'),
+    informationReliability: text('information_reliability'),
+    informationCredibility: text('information_credibility'),
+
+    titleTsv: tsvector('title_tsv').generatedAlwaysAs(
+      sql`to_tsvector('english', coalesce(information_title, ''))`,
+    ),
+    textTsv: tsvector('text_tsv').generatedAlwaysAs(
+      sql`to_tsvector('english', coalesce(information_text, ''))`,
+    ),
+    overallBiasTsv: tsvector('overall_bias_tsv').generatedAlwaysAs(
+      sql`to_tsvector('english', coalesce(overall_bias, ''))`,
+    ),
+    reliabilityTsv: tsvector('reliability_tsv').generatedAlwaysAs(
+      sql`to_tsvector('english', coalesce(information_reliability, ''))`,
+    ),
+    credibilityTsv: tsvector('credibility_tsv').generatedAlwaysAs(
+      sql`to_tsvector('english', coalesce(information_credibility, ''))`,
+    ),
+  },
+  (t) => [
+    index('information_title_tsv_idx').using('gin', t.titleTsv),
+    index('information_text_tsv_idx').using('gin', t.textTsv),
+    index('information_overall_bias_tsv_idx').using('gin', t.overallBiasTsv),
+    index('information_reliability_tsv_idx').using('gin', t.reliabilityTsv),
+    index('information_credibility_tsv_idx').using('gin', t.credibilityTsv),
+  ],
+);
 
 // A flat highlight rectangle in PDF page coordinates (points, unscaled). The
 // PDF viewer scales these by the current zoom when drawing the highlight.
