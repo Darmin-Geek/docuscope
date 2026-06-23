@@ -27,6 +27,7 @@ import type { FileDraft } from "./useFileDraft";
 import LabelPill from "./LabelPill";
 import MoveFileModal from "./MoveFileModal";
 import DraftConflictModal from "./DraftConflictModal";
+import AdmiraltyCodeSelect from "./AdmiraltyCodeSelect";
 
 type FileSidebarProps = {
   projectId: string;
@@ -121,6 +122,8 @@ export default function FileSidebar({
   const source = meta.source ?? "";
   const reliability = meta.fileReliability ?? "";
   const credibility = meta.fileCredibility ?? "";
+  const reliabilityCode = meta.fileReliabilityCode;
+  const credibilityCode = meta.fileCredibilityCode;
 
   // The shared lock state. `isHeldByMe` is true once this user has explicitly
   // checked the file out via the toolbar button; the detail fields are editable
@@ -420,6 +423,8 @@ export default function FileSidebar({
         source: draft.snapshot.metadata.source,
         fileReliability: draft.snapshot.metadata.fileReliability,
         fileCredibility: draft.snapshot.metadata.fileCredibility,
+        fileReliabilityCode: draft.snapshot.metadata.fileReliabilityCode,
+        fileCredibilityCode: draft.snapshot.metadata.fileCredibilityCode,
       });
       onSubmitted();
     }
@@ -647,6 +652,14 @@ export default function FileSidebar({
             />
           </label>
 
+          <AdmiraltyCodeSelect
+            label="Reliability Rating"
+            kind="reliability"
+            value={reliabilityCode}
+            onChange={(code) => draft.setMetadata({ fileReliabilityCode: code })}
+            disabled={!isHeldByMe || lockedByOther}
+          />
+
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
               Overall Reliability
@@ -663,6 +676,14 @@ export default function FileSidebar({
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
           </label>
+
+          <AdmiraltyCodeSelect
+            label="Credibility Rating"
+            kind="credibility"
+            value={credibilityCode}
+            onChange={(code) => draft.setMetadata({ fileCredibilityCode: code })}
+            disabled={!isHeldByMe || lockedByOther}
+          />
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
@@ -684,7 +705,8 @@ export default function FileSidebar({
           {/* Save stages the working draft; Submit publishes it to the main
               tables and clears the draft. Both require holding the check-out
               (issue #78). Submit also respects submitLocked, the extensible
-              flag reserved for the future "task in progress" feature. */}
+              flag reserved for the future "task in progress" feature, and is
+              blocked while an Admiralty rating lacks its description (#80). */}
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -698,13 +720,26 @@ export default function FileSidebar({
               type="button"
               onClick={() => void handleSubmit()}
               disabled={
-                !isHeldByMe || lockedByOther || draft.submitting || submitLocked
+                !isHeldByMe ||
+                lockedByOther ||
+                draft.submitting ||
+                submitLocked ||
+                draft.submitBlockReason != null
               }
+              title={draft.submitBlockReason ?? undefined}
               className="flex h-9 flex-1 items-center justify-center rounded-md bg-black text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {draft.submitting ? "Submitting…" : "Submit"}
             </button>
           </div>
+
+          {/* Explain why Submit is disabled when an Admiralty rating is missing
+              its description; only shown to the check-out holder (#80). */}
+          {isHeldByMe && !lockedByOther && draft.submitBlockReason && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              {draft.submitBlockReason}
+            </p>
+          )}
 
           <button
             type="button"

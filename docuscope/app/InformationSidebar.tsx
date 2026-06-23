@@ -18,6 +18,7 @@ import type { FileLock } from "./useFileLock";
 import type { FileDraft } from "./useFileDraft";
 import DeleteInformationModal from "./DeleteInformationModal";
 import LabelPill from "./LabelPill";
+import AdmiraltyCodeSelect from "./AdmiraltyCodeSelect";
 
 // One entry in the working draft's information list, including its staged
 // selections. The editor shows/edits the Information fields; selections are
@@ -113,6 +114,8 @@ export default function InformationSidebar({
   const bias = selectedItem?.overallBias ?? "";
   const reliability = selectedItem?.informationReliability ?? "";
   const credibility = selectedItem?.informationCredibility ?? "";
+  const reliabilityCode = selectedItem?.informationReliabilityCode ?? null;
+  const credibilityCode = selectedItem?.informationCredibilityCode ?? null;
 
   // Label ids per information id, kept separate from the draft because labels
   // are persisted immediately via the label API (not through save/submit).
@@ -159,6 +162,8 @@ export default function InformationSidebar({
       overallBias: null,
       informationReliability: null,
       informationCredibility: null,
+      informationReliabilityCode: null,
+      informationCredibilityCode: null,
       selections: [],
     });
     setItemLabels((prev) => { const m = new Map(prev); m.set(id, []); return m; });
@@ -446,6 +451,16 @@ export default function InformationSidebar({
                 />
               </label>
 
+              <AdmiraltyCodeSelect
+                label="Reliability Rating"
+                kind="reliability"
+                value={reliabilityCode}
+                onChange={(code) =>
+                  patchSelected({ informationReliabilityCode: code })
+                }
+                disabled={!isHeldByMe || lockedByOther}
+              />
+
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-black dark:text-zinc-50">
                   Information Reliability
@@ -462,6 +477,16 @@ export default function InformationSidebar({
                   className={fieldClass}
                 />
               </label>
+
+              <AdmiraltyCodeSelect
+                label="Credibility Rating"
+                kind="credibility"
+                value={credibilityCode}
+                onChange={(code) =>
+                  patchSelected({ informationCredibilityCode: code })
+                }
+                disabled={!isHeldByMe || lockedByOther}
+              />
 
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-black dark:text-zinc-50">
