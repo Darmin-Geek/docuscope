@@ -16,6 +16,7 @@ import InformationSidebar from "./InformationSidebar";
 import ProjectSettingsModal from "./ProjectSettingsModal";
 import PdfViewerModal from "./PdfViewerModal";
 import { useFileLock } from "./useFileLock";
+import { useFileDraft } from "./useFileDraft";
 
 // Whether a file can be opened in the embedded PDF viewer (issue #64 is PDF-only).
 function isPdf(filename: string): boolean {
@@ -196,6 +197,11 @@ export default function ProjectView({
   // editing either side checks the whole file out (see useFileLock).
   const lock = useFileLock(project.id, selectedFileId, userId);
 
+  // One working draft per selected file, shared by the detail/information
+  // sidebars and the PDF viewer so Save/Submit persist metadata, information
+  // and selections together (issue #78).
+  const draft = useFileDraft(project.id, selectedFile);
+
   return (
     <div className="flex h-dvh flex-col bg-zinc-50 font-sans dark:bg-black">
       <header className="flex items-center gap-4 border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
@@ -256,6 +262,7 @@ export default function ProjectView({
             projectId={project.id}
             file={selectedFile}
             lock={lock}
+            draft={draft}
             canOpenPdf={isPdf(selectedFile.filename)}
             onOpenPdfViewer={(infoId) => {
               setPdfViewerInfoId(infoId);
@@ -272,6 +279,8 @@ export default function ProjectView({
             file={selectedFile}
             labels={labels}
             lock={lock}
+            draft={draft}
+            onSubmitted={() => void loadFiles()}
             onOpenInformation={() => setInformationOpen(true)}
             onOpenPdfViewer={() => {
               setPdfViewerInfoId(null);
@@ -294,6 +303,7 @@ export default function ProjectView({
           projectId={project.id}
           file={selectedFile}
           lock={lock}
+          draft={draft}
           initialInformationId={pdfViewerInfoId}
           onClose={() => setPdfViewerOpen(false)}
         />

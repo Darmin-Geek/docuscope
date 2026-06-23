@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Implementation Plan — Issue #78: Manual Save &amp; Submit</title>
+<style>
+  :root {
+    --bg: #0b0c0f;
+    --panel: #15171c;
+    --panel-2: #1c1f26;
+    --ink: #e7e9ee;
+    --muted: #9aa3b2;
+    --line: rgba(255,255,255,.10);
+    --accent: #7aa2ff;
+    --green: #5fd08a;
+    --amber: #f0c060;
+    --red: #f08a8a;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 40px 24px 96px; }
+  header.title { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 8px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .pill { display:inline-block; font-size:12px; padding:2px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted); margin-right:6px; }
+  h2 { font-size: 20px; margin: 40px 0 10px; padding-top: 8px; letter-spacing:-.01em; }
+  h3 { font-size: 16px; margin: 24px 0 8px; color: #cfd6e4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); border:1px solid var(--line); padding: 1px 5px; border-radius: 5px; }
+  pre { background: var(--panel-2); border:1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow:auto; font-family: var(--mono); font-size: 12.5px; line-height:1.5; }
+  pre code { background: none; border: none; padding: 0; }
+  .card { background: var(--panel); border:1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .kv { display:grid; grid-template-columns: 150px 1fr; gap: 6px 14px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .tag { font-size:11px; font-weight:600; padding:1px 7px; border-radius:6px; border:1px solid var(--line); }
+  .t-new { color: var(--green); border-color: rgba(95,208,138,.4); }
+  .t-edit { color: var(--amber); border-color: rgba(240,192,96,.4); }
+  table { width:100%; border-collapse: collapse; margin: 10px 0; font-size: 13.5px; }
+  th, td { text-align:left; padding: 8px 10px; border-bottom:1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight:600; }
+  .note { border-left: 3px solid var(--accent); background: rgba(122,162,255,.07); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; }
+  .warn { border-left: 3px solid var(--amber); background: rgba(240,192,96,.07); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; }
+  .file { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+  .decisions { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  @media (max-width: 720px) { .decisions { grid-template-columns:1fr; } }
+  .decisions .card { margin:0; }
+  .decisions .card b { display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; }
+  .phase { counter-increment: phase; }
+  .muted { color: var(--muted); }
+  ol.steps { counter-reset: none; }
+  hr { border:none; border-top:1px solid var(--line); margin: 28px 0; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="title">
+    <span class="pill">Issue #78</span>
+    <span class="pill">Builds on #79 (labels) &amp; #86 (manual check-out, issue&nbsp;#77)</span>
+    <h1>Manual Save &amp; Submit</h1>
+    <p class="sub">Replace the current auto-save-on-click-away with explicit <b>Save</b> (stages work to a separate draft store) and <b>Submit</b> (publishes the draft into the main tables). Both gated on the user holding the file's check-out.</p>
+  </header>
+
+  <h2>1 &middot; Goal &amp; behaviour</h2>
+  <p>Today every editable field in the File Details and Information sidebars (and PDF selections) is persisted to the <em>main</em> tables the moment focus leaves it. Issue #78 wants that to stop. Instead:</p>
+  <ul>
+    <li>Two buttons — <b>Save</b> and <b>Submit</b> — sit <b>horizontally between the “Overall Credibility” field and the “Open information view” button</b> in the File Details sidebar.</li>
+    <li><b>Save</b> writes the user's in-progress work to a <b>separate draft store</b>, <em>not</em> the main <code>files</code>/<code>information</code>/<code>information_selections</code> tables. The user may Save at any time.</li>
+    <li><b>Submit</b> promotes the staged work into the <b>main tables</b>, then <b>clears the draft</b>.</li>
+    <li>Both buttons are <b>disabled unless the current user holds the check-out</b> (<code>isHeldByMe</code> from #86). They are also disabled when another user holds it.</li>
+    <li>Submit must be independently disable-able later (“features which temporarily disable submit until a user is done with a task”) — so its disabled state is driven by a single, extensible predicate.</li>
+  </ul>
+
+  <h3>Confirmed design decisions</h3>
+  <div class="decisions">
+    <div class="card"><b>Scope</b>File metadata <b>+ information entries + PDF selections</b> are all staged through Save/Submit.</div>
+    <div class="card"><b>Click-away</b><b>Fully manual.</b> Blur no longer writes anything to storage. Only Save (→ draft) and Submit (→ main) persist.</div>
+    <div class="card"><b>After Submit</b><b>Clear the draft.</b> Reopening shows the published main-table values until the user edits again.</div>
+    <div class="card"><b>Draft keying</b><b>One draft per user, per file</b> — PK <code>(file_id, user_id)</code>.</div>
+  </div>
+
+  <div class="note">
+    <b>Consequence of “fully manual” + scope.</b> Information entries and PDF selections currently hit the server on every add/edit/delete. To make them manual they must become <b>in-memory working state</b> that is only persisted on Save/Submit. This in-memory refactor of <code>InformationSidebar</code> and <code>PdfViewerModal</code> is the largest part of the work — see Phase 4.
+  </div>
+
+  <h2>2 &middot; Architecture: one JSON draft snapshot per (file, user)</h2>
+  <p>Because the draft spans three tables (file metadata, N information rows, M selection rows per information) and is never searched or queried on its own, the simplest robust store is a <b>single <code>jsonb</code> snapshot</b> of the whole editable payload, keyed by <code>(file_id, user_id)</code>. Save overwrites the snapshot; Submit reads it, applies it to the real tables in a transaction, and deletes it.</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">Draft snapshot shape</h3>
+<pre><code>type FileDraftSnapshot = {
+  metadata: {
+    author: string | null;
+    createdDate: number | null;      // unix seconds
+    overallBias: string | null;
+    source: string | null;
+    fileReliability: string | null;
+    fileCredibility: string | null;
+  };
+  information: Array&lt;{
+    id: string;                       // existing id, or a client-generated UUID for new rows
+    informationTitle: string;
+    informationText: string | null;
+    overallBias: string | null;
+    informationReliability: string | null;
+    informationCredibility: string | null;
+    selections: Array&lt;{
+      id: string;                     // existing id, or client UUID for new marks
+      pageIndex: number;
+      boundingTop: number;
+      boundingLeft: number;
+      rects: SelectionRect[];
+      text: string;
+    }&gt;;
+  }&gt;;
+};</code></pre>
+    <p class="muted" style="margin-bottom:0">New information rows and new selections get client-generated UUIDs in the snapshot; <code>addInformation</code> already accepts a caller-supplied <code>id</code>, so Submit can insert them with stable ids. This sidesteps the “immediate POST to get a server id” pattern that exists today.</p>
+  </div>
+
+  <div class="warn">
+    <b>Why not mirror tables (<code>information_drafts</code>, <code>selection_drafts</code>, …)?</b> It triples the schema, needs no FTS, and makes Submit a fiddly per-row diff/insert/update/delete across three tables. The jsonb snapshot keeps drafts as opaque staging and concentrates all reconciliation logic in one <code>submitDraft</code> transaction. Labels and folders stay out of the draft — they already persist immediately and aren't part of the field-editing flow.
+  </div>
+
+  <h2>3 &middot; Backend</h2>
+
+  <h3>3.1 Schema <span class="tag t-new">new table</span></h3>
+  <p class="file">docuscope/lib/drizzle/schema.ts</p>
+<pre><code>export const fileDrafts = pgTable(
+  'file_drafts',
+  {
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() =&gt; files.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),          // Cognito uid (matches files.checked_out_by)
+    snapshot: jsonb('snapshot').$type&lt;FileDraftSnapshot&gt;().notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (t) =&gt; [primaryKey({ columns: [t.fileId, t.userId] })],
+);</code></pre>
+  <ul>
+    <li><code>onDelete: 'cascade'</code> from <code>files</code> so deleting a file drops stray drafts.</li>
+    <li>No tsvector / GIN indexes — drafts are write-and-read-by-key only.</li>
+    <li>Run <code>npm run db:generate</code> to emit the migration (next number after the merged state of #79/#86, e.g. <code>0006_file_drafts.sql</code>), then <code>npm run db:push</code> for the local Docker Postgres.</li>
+  </ul>
+
+  <h3>3.2 Server data layer <span class="tag t-edit">edit</span></h3>
+  <p class="file">docuscope/lib/projects.server.ts</p>
+  <table>
+    <tr><th>Function</th><th>Behaviour</th></tr>
+    <tr><td><code>getDraft(projectId, fileId, uid)</code></td><td>Return the snapshot for <code>(fileId, uid)</code> or <code>null</code>.</td></tr>
+    <tr><td><code>saveDraft(projectId, fileId, uid, snapshot)</code></td><td>Upsert (<code>onConflictDoUpdate</code> on the PK) the snapshot + <code>updatedAt</code>. Does <b>not</b> touch the main tables.</td></tr>
+    <tr><td><code>submitDraft(projectId, fileId, uid, snapshot)</code></td><td><b>Transaction:</b> (1) update <code>files</code> metadata; (2) reconcile <code>information</code> for the file — upsert rows present in the snapshot, delete rows not in it; (3) per information, reconcile <code>information_selections</code> the same way; (4) delete the <code>file_drafts</code> row. Reuses/extends the existing <code>addInformation</code>/<code>updateInformation</code>/<code>deleteInformation</code>/<code>addSelection</code>/<code>deleteSelection</code> helpers inside one <code>db.transaction(...)</code>.</td></tr>
+    <tr><td><code>discardDraft(projectId, fileId, uid)</code></td><td>Delete the draft row (used if we later add a “Discard” affordance; cheap to include now).</td></tr>
+  </table>
+  <div class="note">Submit takes the snapshot from the request body (the freshest client state) rather than re-reading the stored draft, so a user can Submit work they typed but didn't explicitly Save first. The stored draft is still cleared on success.</div>
+
+  <h3>3.3 Check-out enforcement</h3>
+  <p>Mirror the #86 guard: every draft/submit mutation verifies the file is checked out by the caller. Factor the repeated check into a helper so it's not copy-pasted:</p>
+  <p class="file">docuscope/lib/projects.server.ts</p>
+<pre><code>// Throws a 409-mapped error unless the file is unheld or held by `uid`.
+export async function requireCheckoutHolder(projectId, fileId, uid) {
+  const file = await getFile(projectId, fileId);
+  if (file.checkedOutBy &amp;&amp; file.checkedOutBy !== uid) {
+    throw new CheckoutConflictError();   // mapped to 409 in apiError
+  }
+}</code></pre>
+  <p class="muted">Optional cleanup: retrofit the per-route <code>checkedOutBy</code> checks added in #86 to call this helper. Not required for #78, but keeps the rule in one place.</p>
+
+  <h3>3.4 API routes <span class="tag t-new">new</span></h3>
+  <table>
+    <tr><th>Route</th><th>Method</th><th>Action</th></tr>
+    <tr><td rowspan="3"><span class="file">app/api/projects/[id]/files/[fileId]/draft/route.ts</span></td><td><code>GET</code></td><td><code>verifyAuth</code> → <code>requireContributor</code> → return <code>getDraft</code> (snapshot or <code>null</code>).</td></tr>
+    <tr><td><code>PUT</code></td><td><code>requireContributor</code> → <code>requireCheckoutHolder</code> → <code>saveDraft</code>. (Save)</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>requireCheckoutHolder</code> → <code>discardDraft</code>.</td></tr>
+    <tr><td><span class="file">app/api/projects/[id]/files/[fileId]/submit/route.ts</span></td><td><code>POST</code></td><td><code>requireContributor</code> → <code>requireCheckoutHolder</code> → <code>submitDraft</code>. (Submit)</td></tr>
+  </table>
+  <p>Follow the existing handler shape (<code>await params</code>, <code>apiError</code> for the catch). All return <code>409</code> when another user holds the check-out.</p>
+
+  <div class="warn"><b>Retire the auto-save path.</b> With manual save, the file metadata <code>PATCH</code> (<span class="file">…/files/[fileId]/route.ts</span>) and the information/selection mutation endpoints are no longer called from the editing flow on blur. Submit drives all main-table writes via <code>submitDraft</code>. Keep the endpoints (Submit and tests use the underlying server helpers; the PATCH route may still be used elsewhere) but remove the client-side blur calls (Phase 4). Decide per-endpoint whether to keep the HTTP route or only the server helper — favour keeping them to minimise churn.</p></div>
+
+  <h3>3.5 Client wrappers <span class="tag t-edit">edit</span></h3>
+  <p class="file">docuscope/lib/projects.ts</p>
+  <ul>
+    <li>Export the <code>FileDraftSnapshot</code> type (and a client-side <code>SelectionRect</code> mirror already exists).</li>
+    <li><code>getDraft(projectId, fileId): Promise&lt;FileDraftSnapshot | null&gt;</code></li>
+    <li><code>saveDraft(projectId, fileId, snapshot): Promise&lt;void&gt;</code> → <code>PUT …/draft</code></li>
+    <li><code>submitDraft(projectId, fileId, snapshot): Promise&lt;void&gt;</code> → <code>POST …/submit</code></li>
+    <li><code>discardDraft(projectId, fileId): Promise&lt;void&gt;</code> → <code>DELETE …/draft</code></li>
+  </ul>
+
+  <h2>4 &middot; Frontend</h2>
+
+  <h3>4.1 Shared working state — <code>useFileDraft</code> <span class="tag t-new">new</span></h3>
+  <p class="file">docuscope/app/useFileDraft.ts</p>
+  <p>Metadata lives in <code>FileSidebar</code>, information in <code>InformationSidebar</code>, selections in <code>PdfViewerModal</code> — three sibling components. They must edit <b>one</b> snapshot so Save/Submit persist everything together. Introduce a hook (held by <code>ProjectView</code>, the common parent, and threaded down as props or via a small context) that owns the working snapshot for the open file:</p>
+<pre><code>const draft = useFileDraft({ projectId, file, isHeldByMe });
+// draft.snapshot            – current in-memory working state
+// draft.dirty               – snapshot differs from last save/load
+// draft.setMetadata(patch)  – update file fields
+// draft.upsertInformation / removeInformation
+// draft.upsertSelection / removeSelection
+// draft.save()              – PUT …/draft   (Save button)
+// draft.submit()            – POST …/submit (Submit button), then reset from main
+// draft.hasDraft            – a stored draft exists for this (file, user)
+// draft.conflictsOnCheckout – hasDraft && draft would overwrite a filled field
+// draft.applyDraft()        – load the stored draft into the working state
+// draft.discardDraft()      – DELETE …/draft, then seed from published values
+// draft.saving / draft.submitting / draft.error</code></pre>
+  <ul>
+    <li><b>Initialisation:</b> on open, call <code>getDraft</code> and load the published values (<code>file</code> + <code>getInformation</code> + <code>getSelections</code>). If <b>no</b> draft exists, seed the working snapshot from the published values. If a draft <b>does</b> exist, resolution is deferred to check-out time via the conflict prompt below (until then the read-only view shows the published values). A subtle “Unsaved draft” indicator can show when a draft is present.</li>
+    <li><b>Submit:</b> on success, clear local dirty state and re-seed from the now-published main values (draft is gone server-side).</li>
+    <li><b>Check-in interaction:</b> the draft is keyed per user and <b>survives check-in</b> (it's the user's private working copy). Re-checking-out reloads it. (Stated as the default; easy to change to discard-on-check-in if desired.)</li>
+  </ul>
+
+  <h3>4.2 Draft-conflict prompt on check-out <span class="tag t-new">new</span></h3>
+  <p class="file">docuscope/app/DraftConflictModal.tsx</p>
+  <p>When a user <b>checks out</b> a file for which they already hold a draft <em>and at least one field that field’s draft would overwrite has already been filled in</em> (i.e. the published main-table value is non-empty), they must be asked what to do before editing begins:</p>
+  <ul>
+    <li><b>Use my draft</b> — load the draft snapshot into the working state locally, overwriting the existing (published) field values <em>in the editor only</em>. Nothing is written to the main tables until the user later clicks Submit.</li>
+    <li><b>Discard my draft</b> — delete the draft (<code>DELETE …/draft</code> via <code>discardDraft</code>) and seed the working state from the published values.</li>
+  </ul>
+  <p><b>Trigger &amp; placement.</b> Hook this into the Check Out action (the #86 toolbar button). On a successful check-out (<code>lock.acquire()</code> resolves), if <code>getDraft</code> returned a snapshot <em>and</em> the conflict predicate holds, open <code>DraftConflictModal</code> and block field editing until the user chooses. If a draft exists but every field it would replace is currently empty, skip the prompt and just load the draft (nothing is being overwritten).</p>
+  <div class="card">
+    <h3 style="margin-top:0">Conflict predicate</h3>
+<pre><code>// A draft "overwrites a filled-in field" if, for any field present in the draft,
+// the corresponding published value is non-empty and differs from the draft.
+function draftOverwritesFilledField(published, draft): boolean {
+  const fields = ['author','createdDate','overallBias','source',
+                  'fileReliability','fileCredibility'] as const;
+  const metaConflict = fields.some(
+    (f) =&gt; published[f] != null &amp;&amp; published[f] !== '' &amp;&amp; draft.metadata[f] !== published[f],
+  );
+  // Information/selection scope: also conflict if published rows exist that the
+  // draft would replace (the file already has information/selections on record).
+  const infoConflict = publishedInformation.length &gt; 0;
+  return metaConflict || infoConflict;
+}</code></pre>
+    <p class="muted" style="margin-bottom:0">Keep the predicate in <code>useFileDraft</code> so both the modal trigger and tests share one definition. The exact information/selection rule is a judgement call — the conservative version above prompts whenever the file already has any published information rows; tighten to per-entry comparison if that proves too eager.</p>
+  </div>
+  <ul>
+    <li><b>Modal:</b> follows the existing modal conventions (e.g. <code>DeleteInformationModal</code>) — title, an explanatory line, and two buttons (“Use my draft” / “Discard my draft”), plus the standard close/escape. It is <em>not</em> dismissible into an ambiguous state: closing without choosing should default to the safe option (keep the draft, fields stay read-only / show published values) so no work is silently lost.</li>
+    <li><b>Wiring:</b> <code>FileSidebar</code> renders <code>DraftConflictModal</code> and drives it from the check-out handler; the choice calls <code>draft.applyDraft()</code> or <code>draft.discardDraft()</code> on the hook.</li>
+  </ul>
+
+  <h3>4.3 <code>FileSidebar</code> <span class="tag t-edit">edit</span></h3>
+  <p class="file">docuscope/app/FileSidebar.tsx</p>
+  <ul>
+    <li><b>Add the Save + Submit row</b> in a horizontal flex container placed <b>between the Overall Credibility <code>&lt;textarea&gt;</code> and the “Open information view” button</b> (the two existing siblings at the bottom of the field group).</li>
+    <li>Field <code>value</code>/<code>onChange</code> now read/write <code>draft.snapshot.metadata</code> via <code>draft.setMetadata</code> instead of local <code>useState</code> + auto-save.</li>
+    <li><b>Remove</b> the blur-driven <code>handleGroupBlur → handleSave</code> path and the old <code>updateFileMetadata</code> call. (Post-#86 there is no longer a lock acquire/release on focus; just delete the save-on-blur.)</li>
+    <li>Disabled logic:
+      <ul>
+        <li>Fields: <code>disabled = !isHeldByMe || lockedByOther</code> (unchanged from #86).</li>
+        <li><b>Save:</b> <code>disabled = !isHeldByMe || lockedByOther || draft.saving</code>.</li>
+        <li><b>Submit:</b> <code>disabled = !isHeldByMe || lockedByOther || draft.submitting || submitLocked</code>, where <code>submitLocked</code> is a single extensible flag (default <code>false</code>) reserved for the future “task in progress” feature.</li>
+      </ul>
+    </li>
+    <li>Show <code>draft.error</code> and a “Saved”/“Submitted” transient status where the old “Saving…” line was.</li>
+  </ul>
+<pre><code>{/* between Overall Credibility and "Open information view" */}
+&lt;div className="flex items-center gap-2"&gt;
+  &lt;button type="button" onClick={() =&gt; void draft.save()}
+          disabled={!isHeldByMe || lockedByOther || draft.saving}
+          className="flex h-9 flex-1 items-center justify-center rounded-md border …"&gt;
+    {draft.saving ? "Saving…" : "Save"}
+  &lt;/button&gt;
+  &lt;button type="button" onClick={() =&gt; void draft.submit()}
+          disabled={!isHeldByMe || lockedByOther || draft.submitting || submitLocked}
+          className="flex h-9 flex-1 items-center justify-center rounded-md bg-black text-white …"&gt;
+    {draft.submitting ? "Submitting…" : "Submit"}
+  &lt;/button&gt;
+&lt;/div&gt;</code></pre>
+
+  <h3>4.4 <code>InformationSidebar</code> <span class="tag t-edit">edit</span></h3>
+  <p class="file">docuscope/app/InformationSidebar.tsx</p>
+  <ul>
+    <li>Read the information list from <code>draft.snapshot.information</code> instead of its own <code>getInformation</code> fetch + local <code>items</code> state.</li>
+    <li>Add/edit/delete now mutate the snapshot (<code>draft.upsertInformation</code>, <code>draft.removeInformation</code>) — <b>no</b> API calls per action, no save-on-blur.</li>
+    <li>New entries get a client UUID (<code>crypto.randomUUID()</code>) so they can carry selections before Submit.</li>
+    <li>Keep field-disable gating on <code>isHeldByMe &amp;&amp; !lockedByOther</code>.</li>
+  </ul>
+
+  <h3>4.5 <code>PdfViewerModal</code> <span class="tag t-edit">edit</span></h3>
+  <p class="file">docuscope/app/PdfViewerModal.tsx</p>
+  <ul>
+    <li><code>handleMark</code>/<code>handleDeleteSelection</code> mutate <code>draft.snapshot.information[…].selections</code> in memory (client UUIDs for new marks) instead of POST/DELETE to the selections endpoints.</li>
+    <li>Selections render from the working snapshot, so a mark is visible immediately and is only persisted on Save/Submit.</li>
+    <li>Gate marking/deleting on <code>isHeldByMe &amp;&amp; !lockedByOther</code> (already done in #86).</li>
+  </ul>
+
+  <h3>4.6 <code>ProjectView</code> wiring <span class="tag t-edit">edit</span></h3>
+  <p class="file">docuscope/app/ProjectView.tsx</p>
+  <ul>
+    <li>Instantiate <code>useFileDraft</code> for the open file and pass <code>draft</code> down to <code>FileSidebar</code>, <code>InformationSidebar</code>, and <code>PdfViewerModal</code> (or via a lightweight context).</li>
+    <li>After Submit, refresh the file list / row so the main table reflects published metadata (the existing <code>onSaved</code>/refresh hooks).</li>
+  </ul>
+
+  <h2>5 &middot; Testing</h2>
+  <p class="file">docuscope/tests/draft.test.ts <span class="tag t-new">new</span> (reuse helpers from <code>checkout.test.ts</code>)</p>
+  <ul>
+    <li><b>Buttons gated:</b> Save and Submit are disabled before check-out; enabled after Check Out; disabled again after Check In.</li>
+    <li><b>Save ≠ main:</b> edit a field, click Save, then read the file via <code>GET …/files/[fileId]</code> and assert the main-table value is <b>unchanged</b>; assert <code>GET …/draft</code> returns the staged value.</li>
+    <li><b>Submit publishes &amp; clears:</b> click Submit, assert <code>GET …/files/[fileId]</code> now shows the value and <code>GET …/draft</code> returns <code>null</code>.</li>
+    <li><b>Information &amp; selections staged:</b> add an information entry + a PDF mark, Save → not in <code>information</code>/<code>information_selections</code> yet; Submit → present.</li>
+    <li><b>Server enforcement:</b> a second user holds the check-out → this user's <code>PUT …/draft</code> and <code>POST …/submit</code> both return <code>409</code> (mirror the #86 API tests).</li>
+    <li><b>Draft reload:</b> Save, reload the page, reopen the file (still checked out) → fields show the staged draft, not the published values.</li>
+    <li><b>Conflict prompt on check-out:</b> with a draft present and a published field already filled, clicking Check Out opens the conflict modal. “Use my draft” loads the draft into the fields (main table still unchanged until Submit); “Discard my draft” removes it (<code>GET …/draft</code> → <code>null</code>) and shows the published values. Also assert <b>no</b> prompt appears when the file has no draft, or when the draft only fills empty fields.</li>
+    <li><b>Per-user isolation:</b> user A's draft is not visible to user B.</li>
+  </ul>
+  <p class="muted">Run with <code>npm test</code> (spins up Docker Postgres on 5433; <code>npm run db:push</code> must have applied the new table).</p>
+
+  <h2>6 &middot; Phasing &amp; sequencing</h2>
+  <ol class="steps">
+    <li><b>Schema + migration</b> — <code>file_drafts</code> table, generate &amp; push.</li>
+    <li><b>Server layer + routes</b> — <code>getDraft</code>/<code>saveDraft</code>/<code>submitDraft</code>/<code>discardDraft</code>, <code>requireCheckoutHolder</code>, <code>/draft</code> &amp; <code>/submit</code> routes; client wrappers. <span class="muted">Independently testable via API.</span></li>
+    <li><b><code>useFileDraft</code> + FileSidebar buttons</b> — metadata-only Save/Submit working end-to-end (smallest vertical slice that satisfies the literal issue).</li>
+    <li><b>Information staging</b> — move <code>InformationSidebar</code> to the in-memory snapshot.</li>
+    <li><b>Selection staging</b> — move <code>PdfViewerModal</code> to the in-memory snapshot.</li>
+    <li><b>Remove auto-save paths</b> — delete blur-to-main writes across the three components.</li>
+    <li><b>Tests + polish</b> — <code>draft.test.ts</code>, status/error UI, “unsaved draft” indicator.</li>
+  </ol>
+  <div class="note">Phases 1–3 deliver the issue's headline behaviour for file metadata. Phases 4–5 are the bulk of the effort and exist only because the chosen scope includes information entries and PDF selections.</div>
+
+  <h2>7 &middot; Risks &amp; open points</h2>
+  <ul>
+    <li><b>In-memory refactor of information/selections</b> is the riskiest change — it inverts the current “persist immediately” model. Reconciliation on Submit (upsert present, delete absent) must be transactional to avoid half-published state.</li>
+    <li><b>Concurrent edits while checked out</b> — check-out is exclusive, so the per-user draft can't be clobbered by another user mid-session; the server guard backstops a stale client.</li>
+    <li><b>FTS freshness</b> — information/selection tsvectors only update on Submit (when rows actually change), which is the intended behaviour: drafts are not searchable.</li>
+    <li><b>Future “disable submit until task done”</b> — implemented now as the single <code>submitLocked</code> predicate; the later feature just feeds that flag.</li>
+    <li><b>Migration numbering</b> assumes #79 (<code>0004_brainy_supreme_intelligence</code>) and #86's checkout work are already merged; regenerate to land on the correct next number.</li>
+  </ul>
+
+  <hr />
+  <p class="muted" style="font-size:12.5px">Plan for issue <a href="https://github.com/Darmin-Geek/docuscope/issues/78">#78</a> · assumes #79 and #86 merged · drafts staged as one jsonb snapshot per (file, user) · fully manual save, clear-on-submit.</p>
+
+</div>
+</body>
+</html>

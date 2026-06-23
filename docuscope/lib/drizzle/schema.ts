@@ -236,3 +236,51 @@ export const informationSelections = pgTable('information_selections', {
   rects: jsonb('rects').$type<SelectionRect[]>().notNull(),
   text: text('text').notNull().default(''),
 });
+
+// The whole editable payload for a file — metadata, information rows, and their
+// PDF selections — staged as one opaque jsonb snapshot. See issue #78: Save
+// writes this draft instead of the main tables, and Submit applies it to the
+// real tables in a transaction and deletes the draft. New information rows and
+// new selections carry client-generated UUIDs so Submit can insert them with
+// stable ids. Mirrors the FileDraftSnapshot type in lib/projects.ts.
+export type FileDraftSnapshot = {
+  metadata: {
+    author: string | null;
+    createdDate: number | null; // unix seconds
+    overallBias: string | null;
+    source: string | null;
+    fileReliability: string | null;
+    fileCredibility: string | null;
+  };
+  information: Array<{
+    id: string;
+    informationTitle: string;
+    informationText: string | null;
+    overallBias: string | null;
+    informationReliability: string | null;
+    informationCredibility: string | null;
+    selections: Array<{
+      id: string;
+      pageIndex: number;
+      boundingTop: number;
+      boundingLeft: number;
+      rects: SelectionRect[];
+      text: string;
+    }>;
+  }>;
+};
+
+// One draft per (file, user). Drafts are write-and-read-by-key only — no
+// tsvector / GIN indexes — and cascade-delete with the file.
+export const fileDrafts = pgTable(
+  'file_drafts',
+  {
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(), // Cognito uid (matches files.checked_out_by)
+    snapshot: jsonb('snapshot').$type<FileDraftSnapshot>().notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.fileId, t.userId] })],
+);

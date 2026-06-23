@@ -71,6 +71,39 @@ export type Selection = {
 
 export type SelectionFields = Omit<Selection, 'id'>;
 
+// The whole editable payload for a file — metadata, information rows, and their
+// PDF selections — staged as one snapshot (issue #78). Save writes this to the
+// draft store; Submit applies it to the main tables and clears the draft. New
+// information rows and selections carry client-generated UUIDs so they can hold
+// child rows before they are first persisted. Mirrors the same-named type in
+// lib/drizzle/schema.ts; kept here so client code never imports server schema.
+export type FileDraftSnapshot = {
+  metadata: {
+    author: string | null;
+    createdDate: number | null; // unix seconds
+    overallBias: string | null;
+    source: string | null;
+    fileReliability: string | null;
+    fileCredibility: string | null;
+  };
+  information: Array<{
+    id: string;
+    informationTitle: string;
+    informationText: string | null;
+    overallBias: string | null;
+    informationReliability: string | null;
+    informationCredibility: string | null;
+    selections: Array<{
+      id: string;
+      pageIndex: number;
+      boundingTop: number;
+      boundingLeft: number;
+      rects: SelectionRect[];
+      text: string;
+    }>;
+  }>;
+};
+
 // ── projects ──────────────────────────────────────────────────────────────────
 
 export async function getProjectsForUser(_email: string): Promise<Project[]> {
@@ -371,6 +404,52 @@ export async function deleteSelection(
     `/api/projects/${projectId}/files/${fileId}/information/${informationId}/selections/${selectionId}`,
     { method: 'DELETE' },
   );
+}
+
+// ── drafts (manual save / submit, issue #78) ────────────────────────────────────
+
+// Returns the staged draft snapshot for the current user on this file, or null.
+export async function getDraft(
+  projectId: string,
+  fileId: string,
+): Promise<FileDraftSnapshot | null> {
+  return api<FileDraftSnapshot | null>(
+    `/api/projects/${projectId}/files/${fileId}/draft`,
+  );
+}
+
+// Save: stage the snapshot to the draft store (PUT). Does not touch main tables.
+export async function saveDraft(
+  projectId: string,
+  fileId: string,
+  snapshot: FileDraftSnapshot,
+): Promise<void> {
+  await api(`/api/projects/${projectId}/files/${fileId}/draft`, {
+    method: 'PUT',
+    body: JSON.stringify(snapshot),
+  });
+}
+
+// Submit: publish the snapshot into the main tables and clear the draft (POST).
+export async function submitDraft(
+  projectId: string,
+  fileId: string,
+  snapshot: FileDraftSnapshot,
+): Promise<void> {
+  await api(`/api/projects/${projectId}/files/${fileId}/submit`, {
+    method: 'POST',
+    body: JSON.stringify(snapshot),
+  });
+}
+
+// Discard: delete the stored draft (DELETE).
+export async function discardDraft(
+  projectId: string,
+  fileId: string,
+): Promise<void> {
+  await api(`/api/projects/${projectId}/files/${fileId}/draft`, {
+    method: 'DELETE',
+  });
 }
 
 // ── labels ────────────────────────────────────────────────────────────────────
