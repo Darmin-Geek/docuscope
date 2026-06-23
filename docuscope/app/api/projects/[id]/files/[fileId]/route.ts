@@ -23,9 +23,18 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; fileId: string }> },
 ) {
   try {
-    const { email } = await verifyAuth(request);
+    const { uid, email } = await verifyAuth(request);
     const { id, fileId } = await params;
     await requireContributor(id, email);
+    // The file must be checked out by this user (or no one) before its metadata
+    // can change; otherwise reject so a stale client can't clobber the holder.
+    const file = await getFile(id, fileId);
+    if (file.checkedOutBy && file.checkedOutBy !== uid) {
+      return NextResponse.json(
+        { error: 'File is checked out by another user' },
+        { status: 409 },
+      );
+    }
     const body = await request.json() as {
       author: string | null;
       createdDate: number | null;

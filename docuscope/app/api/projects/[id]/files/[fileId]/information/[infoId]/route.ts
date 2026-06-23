@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/verifyAuth';
-import { requireContributor, updateInformation, deleteInformation } from '@/lib/projects.server';
+import { requireContributor, getFile, updateInformation, deleteInformation } from '@/lib/projects.server';
 import { apiError } from '@/lib/apiError';
 
 export async function PATCH(
@@ -8,9 +8,16 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; fileId: string; infoId: string }> },
 ) {
   try {
-    const { email } = await verifyAuth(request);
+    const { uid, email } = await verifyAuth(request);
     const { id, fileId, infoId } = await params;
     await requireContributor(id, email);
+    const file = await getFile(id, fileId);
+    if (file.checkedOutBy && file.checkedOutBy !== uid) {
+      return NextResponse.json(
+        { error: 'File is checked out by another user' },
+        { status: 409 },
+      );
+    }
     const fields = await request.json() as {
       informationTitle: string;
       informationText: string | null;
@@ -30,9 +37,16 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; fileId: string; infoId: string }> },
 ) {
   try {
-    const { email } = await verifyAuth(request);
+    const { uid, email } = await verifyAuth(request);
     const { id, fileId, infoId } = await params;
     await requireContributor(id, email);
+    const file = await getFile(id, fileId);
+    if (file.checkedOutBy && file.checkedOutBy !== uid) {
+      return NextResponse.json(
+        { error: 'File is checked out by another user' },
+        { status: 409 },
+      );
+    }
     await deleteInformation(id, fileId, infoId);
     return NextResponse.json({ ok: true });
   } catch (err) {

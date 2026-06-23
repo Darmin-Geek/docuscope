@@ -6,6 +6,8 @@ import { getUserProfile } from "@/lib/users";
 
 export type FileLock = {
   lockedByOther: boolean;
+  // True when this user currently holds the file's check-out lock.
+  isHeldByMe: boolean;
   editorName: string | null;
   acquire: () => void;
   release: () => void;
@@ -23,27 +25,31 @@ export function useFileLock(
   const checkedOutBy = held.fileId === fileId ? held.uid : null;
   const [editor, setEditor] = useState<{ uid: string; name: string | null } | null>(null);
 
-  const claimants = useRef<number>(0);
   const holding = useRef(false);
 
   const lockedByOther = checkedOutBy != null && checkedOutBy !== userId;
+  const isHeldByMe = checkedOutBy === userId;
   const editorName = editor?.uid === checkedOutBy ? editor.name : null;
 
   // On file change: fetch once to get the initial checkedOutBy and reset local lock state.
   useEffect(() => {
     if (!fileId) return;
-    claimants.current = 0;
     holding.current = false;
     let active = true;
     getFile(projectId, fileId)
       .then((f) => {
-        if (active) setHeld({ fileId, uid: f.checkedOutBy });
+        if (active) {
+          // If the server already has us as the lock holder, keep holding.current
+          // in sync so release() can fire the check-in API call correctly.
+          holding.current = f.checkedOutBy === userId;
+          setHeld({ fileId, uid: f.checkedOutBy });
+        }
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [projectId, fileId]);
+  }, [projectId, fileId, userId]);
 
   // While someone else holds the lock, poll every 3 s.
   // Stop (cleanup) when lockedByOther changes to false or fileId changes.
@@ -73,9 +79,7 @@ export function useFileLock(
   }, [lockedByOther, checkedOutBy]);
 
   const acquire = useCallback(() => {
-    if (!fileId) return;
-    claimants.current += 1;
-    if (holding.current) return;
+    if (!fileId || holding.current) return;
     holding.current = true;
     checkOutFile(projectId, fileId, userId)
       .then((claimed) => {
@@ -95,10 +99,7 @@ export function useFileLock(
   }, [projectId, fileId, userId]);
 
   const release = useCallback(() => {
-    if (!fileId) return;
-    if (claimants.current > 0) claimants.current -= 1;
-    if (claimants.current > 0) return;
-    if (!holding.current) return;
+    if (!fileId || !holding.current) return;
     holding.current = false;
     setHeld({ fileId, uid: null });
     void checkInFile(projectId, fileId);
@@ -109,7 +110,6 @@ export function useFileLock(
     return () => {
       if (!holding.current) return;
       holding.current = false;
-      claimants.current = 0;
       if (fileId) {
         setHeld({ fileId, uid: null });
         void checkInFile(projectId, fileId);
@@ -117,5 +117,5 @@ export function useFileLock(
     };
   }, [projectId, fileId]);
 
-  return { lockedByOther, editorName, acquire, release };
+  return { lockedByOther, isHeldByMe, editorName, acquire, release };
 }
