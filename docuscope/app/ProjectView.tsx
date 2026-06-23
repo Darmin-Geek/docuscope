@@ -181,6 +181,18 @@ export default function ProjectView({
     );
   }
 
+  // Labels are split by kind: file labels drive the file table, its filter, and
+  // the file sidebar; information labels are assigned per piece of information in
+  // the information sidebar (see issue #75).
+  const fileKindLabels = useMemo(
+    () => labels.filter((label) => label.kind === "file"),
+    [labels],
+  );
+  const informationKindLabels = useMemo(
+    () => labels.filter((label) => label.kind === "information"),
+    [labels],
+  );
+
   // Within the already-loaded files (the project, or the selected folder), keep
   // only those carrying every selected label. No selection means no filtering.
   const visibleFiles = useMemo(() => {
@@ -229,7 +241,7 @@ export default function ProjectView({
             setSearchQuery('');
           }}
           onUpload={handleUpload}
-          labels={labels}
+          labels={fileKindLabels}
           selectedLabelIds={selectedLabelIds}
           onToggleLabel={handleToggleLabel}
         />
@@ -238,7 +250,7 @@ export default function ProjectView({
             files={visibleFiles}
             loading={filesLoading}
             error={filesError}
-            labels={labels}
+            labels={fileKindLabels}
             selectedId={selectedFileId}
             onSelectFile={(file) => {
               setSelectedFileId(file.id);
@@ -255,6 +267,7 @@ export default function ProjectView({
             key={`info-${selectedFile.id}`}
             projectId={project.id}
             file={selectedFile}
+            labels={informationKindLabels}
             lock={lock}
             canOpenPdf={isPdf(selectedFile.filename)}
             onOpenPdfViewer={(infoId) => {
@@ -270,7 +283,7 @@ export default function ProjectView({
             key={`detail-${selectedFile.id}`}
             projectId={project.id}
             file={selectedFile}
-            labels={labels}
+            labels={fileKindLabels}
             lock={lock}
             onOpenInformation={() => setInformationOpen(true)}
             onOpenPdfViewer={() => {
@@ -293,6 +306,7 @@ export default function ProjectView({
           key={`pdf-${selectedFile.id}`}
           projectId={project.id}
           file={selectedFile}
+          labels={informationKindLabels}
           lock={lock}
           initialInformationId={pdfViewerInfoId}
           onClose={() => setPdfViewerOpen(false)}

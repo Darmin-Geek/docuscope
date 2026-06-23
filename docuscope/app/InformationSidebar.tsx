@@ -11,19 +11,26 @@ import {
 } from "react";
 import {
   addInformation,
+  addLabelToInformation,
   deleteInformation,
   getInformation,
   newInformationId,
+  removeLabelFromInformation,
   updateInformation,
   type FileDoc,
   type Information,
+  type Label,
 } from "@/lib/projects";
 import type { FileLock } from "./useFileLock";
 import DeleteInformationModal from "./DeleteInformationModal";
+import LabelPill from "./LabelPill";
 
 type InformationSidebarProps = {
   projectId: string;
   file: FileDoc;
+  // The project's 'information'-kind labels, used to assign labels to individual
+  // pieces of information (see issue #75).
+  labels: Label[];
   // The file's shared check-out lock. Editing information here checks the whole
   // file out, which blocks other contributors from the file details too, and a
   // detail edit elsewhere likewise greys these fields out (see useFileLock).
@@ -57,6 +64,7 @@ function trimmedOrNull(value: string): string | null {
 export default function InformationSidebar({
   projectId,
   file,
+  labels,
   lock,
   canOpenPdf,
   onOpenPdfViewer,
@@ -119,6 +127,11 @@ export default function InformationSidebar({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Whether the "add label" picker (the unassigned information labels) is open,
+  // plus any error from assigning/removing a label.
+  const [pickingLabel, setPickingLabel] = useState(false);
+  const [labelError, setLabelError] = useState<string | null>(null);
+
   // The entry awaiting delete confirmation, or null when the modal is closed.
   const [deleteTarget, setDeleteTarget] = useState<Information | null>(null);
 
@@ -179,6 +192,7 @@ export default function InformationSidebar({
       overallBias: null,
       informationReliability: null,
       informationCredibility: null,
+      labels: [],
     };
     setPending((prev) => [...prev, draft]);
     setSelectedId(id);
@@ -253,6 +267,63 @@ export default function InformationSidebar({
     setDeleteTarget(null);
     await refreshItems();
   }
+
+  // Apply a label add/remove to a piece of information in both the live and
+  // pending lists, so the change shows immediately regardless of which list the
+  // entry currently lives in.
+  function applyLabelChange(
+    infoId: string,
+    next: (current: string[]) => string[],
+  ) {
+    const update = (entry: Information) =>
+      entry.id === infoId ? { ...entry, labels: next(entry.labels) } : entry;
+    setItems((prev) => prev.map(update));
+    setPending((prev) => prev.map(update));
+  }
+
+  async function handleAddLabel(labelId: string) {
+    if (!selectedId) return;
+    setLabelError(null);
+    setPickingLabel(false);
+    applyLabelChange(selectedId, (current) =>
+      current.includes(labelId) ? current : [...current, labelId],
+    );
+    try {
+      await addLabelToInformation(projectId, file.id, selectedId, labelId);
+    } catch (err: unknown) {
+      applyLabelChange(selectedId, (current) =>
+        current.filter((id) => id !== labelId),
+      );
+      setLabelError(err instanceof Error ? err.message : "Failed to add label.");
+    }
+  }
+
+  async function handleRemoveLabel(labelId: string) {
+    if (!selectedId) return;
+    setLabelError(null);
+    applyLabelChange(selectedId, (current) =>
+      current.filter((id) => id !== labelId),
+    );
+    try {
+      await removeLabelFromInformation(projectId, file.id, selectedId, labelId);
+    } catch (err: unknown) {
+      applyLabelChange(selectedId, (current) =>
+        current.includes(labelId) ? current : [...current, labelId],
+      );
+      setLabelError(
+        err instanceof Error ? err.message : "Failed to remove label.",
+      );
+    }
+  }
+
+  // Resolve the selected entry's label ids against the project's information
+  // labels, preserving the project's order; the rest are offered in the picker.
+  const appliedLabels = labels.filter((label) =>
+    selectedItem?.labels.includes(label.id),
+  );
+  const availableLabels = labels.filter(
+    (label) => !selectedItem?.labels.includes(label.id),
+  );
 
   const fieldClass =
     "resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]";
@@ -377,6 +448,52 @@ export default function InformationSidebar({
                   className="h-7 min-w-0 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
                 />
               </label>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                  Labels
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {appliedLabels.map((label) => (
+                    <LabelPill key={label.id} label={label.label} color={label.color}>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveLabel(label.id)}
+                        disabled={!isHeldByMe || lockedByOther}
+                        aria-label={`Remove ${label.label}`}
+                        className="leading-none opacity-70 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
+                      >
+                        ×
+                      </button>
+                    </LabelPill>
+                  ))}
+                  {availableLabels.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setPickingLabel((open) => !open)}
+                      disabled={!isHeldByMe || lockedByOther}
+                      className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                    >
+                      + Label
+                    </button>
+                  )}
+                </div>
+                {pickingLabel && availableLabels.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 rounded-md border border-black/[.08] p-2 dark:border-white/[.145]">
+                    {availableLabels.map((label) => (
+                      <LabelPill
+                        key={label.id}
+                        label={label.label}
+                        color={label.color}
+                        onClick={() => void handleAddLabel(label.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+                {labelError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{labelError}</p>
+                )}
+              </div>
 
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-black dark:text-zinc-50">

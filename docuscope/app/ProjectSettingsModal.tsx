@@ -9,6 +9,7 @@ import {
   updateLabel,
   updateProjectTitle,
   type Label,
+  type LabelKind,
 } from "@/lib/projects";
 import LabelPill from "./LabelPill";
 
@@ -148,11 +149,11 @@ export default function ProjectSettingsModal({
     }
   }
 
-  async function handleAddLabel() {
+  async function handleAddLabel(kind: LabelKind) {
     setError(null);
     setBusy(true);
     try {
-      const created = await createLabel(projectId, "New label", NEW_LABEL_COLOR);
+      const created = await createLabel(projectId, "New label", NEW_LABEL_COLOR, kind);
       setDraftLabels((prev) => [...prev, created]);
       onLabelCreated(created);
     } catch (err) {
@@ -174,6 +175,49 @@ export default function ProjectSettingsModal({
     } finally {
       setBusy(false);
     }
+  }
+
+  const fileLabels = draftLabels.filter((label) => label.kind === "file");
+  const informationLabels = draftLabels.filter(
+    (label) => label.kind === "information",
+  );
+
+  function renderLabelRow(label: Label) {
+    return (
+      <div key={label.id} className="flex items-center gap-2">
+        <input
+          type="color"
+          value={label.color}
+          aria-label="Label color"
+          onChange={(event) => editDraft(label.id, { color: event.target.value })}
+          onBlur={() => void commitLabel(label.id)}
+          className="h-8 w-8 shrink-0 cursor-pointer rounded border border-black/[.12] bg-transparent dark:border-white/[.18]"
+        />
+        <input
+          type="text"
+          value={label.label}
+          onChange={(event) => editDraft(label.id, { label: event.target.value })}
+          onBlur={() => void commitLabel(label.id)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
+          className="h-8 min-w-0 flex-1 rounded-md border border-black/[.12] bg-transparent px-2 text-sm text-black outline-none focus:border-black dark:border-white/[.18] dark:text-zinc-50 dark:focus:border-white"
+        />
+        <LabelPill label={label.label} color={label.color} />
+        <button
+          type="button"
+          onClick={() => void handleDeleteLabel(label.id)}
+          disabled={busy}
+          aria-label={`Delete ${label.label}`}
+          className="shrink-0 text-xl leading-none text-zinc-400 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
+        >
+          &times;
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -281,56 +325,38 @@ export default function ProjectSettingsModal({
 
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Labels
+              File labels
             </span>
             <div className="flex flex-col gap-2">
-              {draftLabels.map((label) => (
-                <div key={label.id} className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={label.color}
-                    aria-label="Label color"
-                    onChange={(event) =>
-                      editDraft(label.id, { color: event.target.value })
-                    }
-                    onBlur={() => void commitLabel(label.id)}
-                    className="h-8 w-8 shrink-0 cursor-pointer rounded border border-black/[.12] bg-transparent dark:border-white/[.18]"
-                  />
-                  <input
-                    type="text"
-                    value={label.label}
-                    onChange={(event) =>
-                      editDraft(label.id, { label: event.target.value })
-                    }
-                    onBlur={() => void commitLabel(label.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        event.currentTarget.blur();
-                      }
-                    }}
-                    className="h-8 min-w-0 flex-1 rounded-md border border-black/[.12] bg-transparent px-2 text-sm text-black outline-none focus:border-black dark:border-white/[.18] dark:text-zinc-50 dark:focus:border-white"
-                  />
-                  <LabelPill label={label.label} color={label.color} />
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteLabel(label.id)}
-                    disabled={busy}
-                    aria-label={`Delete ${label.label}`}
-                    className="shrink-0 text-xl leading-none text-zinc-400 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
+              {fileLabels.map(renderLabelRow)}
             </div>
             <button
               type="button"
-              onClick={() => void handleAddLabel()}
+              onClick={() => void handleAddLabel("file")}
               disabled={busy}
               className="self-start text-sm font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
             >
-              + Add label
+              + Add file label
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Information labels
+            </span>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Applied to individual pieces of information, not whole files.
+            </p>
+            <div className="flex flex-col gap-2">
+              {informationLabels.map(renderLabelRow)}
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleAddLabel("information")}
+              disabled={busy}
+              className="self-start text-sm font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+            >
+              + Add information label
             </button>
           </div>
 
