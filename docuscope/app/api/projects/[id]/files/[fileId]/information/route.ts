@@ -40,6 +40,8 @@ export async function POST(
       overallBias: string | null;
       informationReliability: string | null;
       informationCredibility: string | null;
+      informationReliabilityCode: string | null;
+      informationCredibilityCode: string | null;
     };
     const { id: infoId, ...fields } = body;
     const newId = await addInformation(id, fileId, fields, infoId);

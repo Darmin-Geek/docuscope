@@ -42,6 +42,8 @@ export async function PATCH(
       source: string | null;
       fileReliability: string | null;
       fileCredibility: string | null;
+      fileReliabilityCode: string | null;
+      fileCredibilityCode: string | null;
     };
     await updateFileMetadata(id, fileId, body);
     return NextResponse.json({ ok: true });

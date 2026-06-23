@@ -17,6 +17,7 @@ import {
   type FileDraftSnapshot,
 } from './drizzle/schema';
 import { getUidForEmail } from './users.server';
+import { validateDraftForSubmit } from './draftValidation';
 import type {
   Project,
   Folder,
@@ -99,6 +100,8 @@ async function attachLabels(rows: FileRow[]): Promise<FileDoc[]> {
     source: r.source,
     fileReliability: r.fileReliability,
     fileCredibility: r.fileCredibility,
+    fileReliabilityCode: r.fileReliabilityCode,
+    fileCredibilityCode: r.fileCredibilityCode,
     checkedOutBy: r.checkedOutBy,
     labels: map.get(r.id) ?? [],
     folderId: r.folderId,
@@ -481,6 +484,8 @@ export async function createFileRecord(
     source: null,
     fileReliability: null,
     fileCredibility: null,
+    fileReliabilityCode: null,
+    fileCredibilityCode: null,
     checkedOutBy: null,
     labels: [],
     folderId: folderId,
@@ -605,6 +610,8 @@ export async function updateFileMetadata(
     source: string | null;
     fileReliability: string | null;
     fileCredibility: string | null;
+    fileReliabilityCode: string | null;
+    fileCredibilityCode: string | null;
   },
 ): Promise<void> {
   await db
@@ -683,6 +690,8 @@ export async function getInformation(
     overallBias: r.overallBias,
     informationReliability: r.informationReliability,
     informationCredibility: r.informationCredibility,
+    informationReliabilityCode: r.informationReliabilityCode,
+    informationCredibilityCode: r.informationCredibilityCode,
     labels: labelMap.get(r.id) ?? [],
   }));
 }
@@ -905,6 +914,12 @@ export async function submitDraft(
   // Confirm the file belongs to this project before mutating anything.
   await getFile(projectId, fileId);
 
+  // Admiralty-code gate (issue #80): a Reliability/Credibility code set without
+  // its matching free-text description blocks Submit (Save is never gated).
+  // Authoritative check — the client disables Submit too, but never trust it.
+  const invalid = validateDraftForSubmit(snapshot);
+  if (invalid) throw new Error('Invalid');
+
   await db.transaction(async (tx) => {
     // (1) file metadata
     await tx
@@ -940,6 +955,8 @@ export async function submitDraft(
         overallBias: info.overallBias,
         informationReliability: info.informationReliability,
         informationCredibility: info.informationCredibility,
+        informationReliabilityCode: info.informationReliabilityCode,
+        informationCredibilityCode: info.informationCredibilityCode,
       };
       await tx
         .insert(informationTable)
