@@ -73,6 +73,12 @@ export const files = pgTable('files', {
   source: text('source'),
   fileReliability: text('file_reliability'),
   fileCredibility: text('file_credibility'),
+  // Admiralty-code ratings (see issue #80). Reliability is an Alpha code A-F,
+  // credibility a numeric code 1-6; both are nullable (blank by default) and
+  // sit alongside the free-text reliability/credibility descriptions above. Not
+  // searchable — the option descriptions are static UI text, so no tsvector.
+  fileReliabilityCode: text('file_reliability_code'),
+  fileCredibilityCode: text('file_credibility_code'),
   checkedOutBy: text('checked_out_by'),
 
   // Generated stored tsvector columns — one per searchable metadata field.
@@ -204,6 +210,9 @@ export const information = pgTable(
     overallBias: text('overall_bias'),
     informationReliability: text('information_reliability'),
     informationCredibility: text('information_credibility'),
+    // Admiralty-code ratings (see issue #80), mirroring the file-level columns.
+    informationReliabilityCode: text('information_reliability_code'),
+    informationCredibilityCode: text('information_credibility_code'),
 
     titleTsv: tsvector('title_tsv').generatedAlwaysAs(
       sql`to_tsvector('english', coalesce(information_title, ''))`,
@@ -271,6 +280,8 @@ export type FileDraftSnapshot = {
     source: string | null;
     fileReliability: string | null;
     fileCredibility: string | null;
+    fileReliabilityCode: string | null; // Admiralty Alpha code A-F (issue #80)
+    fileCredibilityCode: string | null; // Admiralty numeric code 1-6 (issue #80)
   };
   information: Array<{
     id: string;
@@ -279,6 +290,8 @@ export type FileDraftSnapshot = {
     overallBias: string | null;
     informationReliability: string | null;
     informationCredibility: string | null;
+    informationReliabilityCode: string | null;
+    informationCredibilityCode: string | null;
     selections: Array<{
       id: string;
       pageIndex: number;
