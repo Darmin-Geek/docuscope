@@ -35,6 +35,10 @@ export const projectContributors = pgTable(
   (t) => [primaryKey({ columns: [t.projectId, t.email] })],
 );
 
+// Project-scoped labels. `kind` separates labels applied to whole files
+// ('file') from labels applied to individual pieces of information
+// ('information'); the two sets are managed separately in Project Settings and
+// never mixed (see issue #75).
 export const labels = pgTable('labels', {
   id: uuid('id').primaryKey().defaultRandom(),
   projectId: uuid('project_id')
@@ -42,6 +46,7 @@ export const labels = pgTable('labels', {
     .references(() => projects.id, { onDelete: 'cascade' }),
   label: text('label').notNull(),
   color: char('color', { length: 7 }).notNull().default('#9ca3af'),
+  kind: text('kind').notNull().default('file'),
 });
 
 export const folders = pgTable('folders', {
@@ -157,6 +162,21 @@ export const fileLabels = pgTable(
       .references(() => labels.id, { onDelete: 'cascade' }),
   },
   (t) => [primaryKey({ columns: [t.fileId, t.labelId] })],
+);
+
+// Assignments of an 'information'-kind label to a piece of information. Mirrors
+// fileLabels but for information rows (see issue #75).
+export const informationLabels = pgTable(
+  'information_labels',
+  {
+    informationId: uuid('information_id')
+      .notNull()
+      .references(() => information.id, { onDelete: 'cascade' }),
+    labelId: uuid('label_id')
+      .notNull()
+      .references(() => labels.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.informationId, t.labelId] })],
 );
 
 export const fileFolders = pgTable(

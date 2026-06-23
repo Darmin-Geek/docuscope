@@ -16,10 +16,16 @@ export type Folder = {
   parentId: string | null;
 };
 
+// `kind` distinguishes labels applied to whole files ('file') from labels
+// applied to individual pieces of information ('information'). The two sets are
+// managed and displayed separately (see issue #75).
+export type LabelKind = 'file' | 'information';
+
 export type Label = {
   id: string;
   label: string;
   color: string;
+  kind: LabelKind;
 };
 
 export type FileDoc = {
@@ -44,9 +50,14 @@ export type Information = {
   overallBias: string | null;
   informationReliability: string | null;
   informationCredibility: string | null;
+  // Ids of the 'information'-kind labels assigned to this piece of information.
+  labels: string[];
 };
 
-export type InformationFields = Omit<Information, 'id'>;
+// The editable fields of a piece of information. Labels are assigned through
+// their own endpoints (addLabelToInformation/removeLabelFromInformation), not
+// through the information create/update body, so they are excluded here.
+export type InformationFields = Omit<Information, 'id' | 'labels'>;
 
 // A flat highlight rectangle in PDF page coordinates (points, unscaled). Mirrors
 // the same-named type in lib/drizzle/schema.ts; kept separate so this client
@@ -458,10 +469,15 @@ export async function getLabels(projectId: string): Promise<Label[]> {
   return api<Label[]>(`/api/projects/${projectId}/labels`);
 }
 
-export async function createLabel(projectId: string, label: string, color: string): Promise<Label> {
+export async function createLabel(
+  projectId: string,
+  label: string,
+  color: string,
+  kind: LabelKind = 'file',
+): Promise<Label> {
   return api<Label>(`/api/projects/${projectId}/labels`, {
     method: 'POST',
-    body: JSON.stringify({ label, color }),
+    body: JSON.stringify({ label, color, kind }),
   });
 }
 
@@ -499,4 +515,28 @@ export async function removeLabelFromFile(
   await api(`/api/projects/${projectId}/files/${fileId}/labels/${labelId}`, {
     method: 'DELETE',
   });
+}
+
+export async function addLabelToInformation(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  labelId: string,
+): Promise<void> {
+  await api(
+    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/labels`,
+    { method: 'POST', body: JSON.stringify({ labelId }) },
+  );
+}
+
+export async function removeLabelFromInformation(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+  labelId: string,
+): Promise<void> {
+  await api(
+    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/labels/${labelId}`,
+    { method: 'DELETE' },
+  );
 }

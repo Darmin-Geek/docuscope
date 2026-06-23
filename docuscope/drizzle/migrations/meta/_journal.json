@@ -47,8 +47,15 @@
     {
       "idx": 6,
       "version": "7",
+      "when": 1782234625428,
+      "tag": "0006_shocking_hardball",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
       "when": 1782242588513,
-      "tag": "0006_clean_dagger",
+      "tag": "0007_clean_dagger",
       "breakpoints": true
     }
   ]

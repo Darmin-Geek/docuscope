@@ -59,11 +59,16 @@ async function createLabel(page: Page, labelName: string): Promise<void> {
   await expect(
     page.getByRole("heading", { name: "Project Settings" })
   ).toBeVisible();
-  await page.getByRole("button", { name: "+ Add label" }).click();
-  // The new label row is appended last and is seeded with the value "New label";
-  // wait for that input rather than getByText("Done") (a default label whose text
-  // renders both here and as a FolderView filter pill, tripping strict mode).
-  const newLabelInput = page.locator("input[type='text']").last();
+  await page.getByRole("button", { name: "+ Add file label" }).click();
+  // The new label row is appended last within the File labels section and is
+  // seeded with the value "New label". Scope to that section (the innermost div
+  // containing its add button) so the Information labels inputs further down the
+  // modal don't shadow it; then take that section's last text input.
+  const fileLabelsSection = page
+    .locator("div")
+    .filter({ has: page.getByRole("button", { name: "+ Add file label" }) })
+    .last();
+  const newLabelInput = fileLabelsSection.locator("input[type='text']").last();
   await expect(newLabelInput).toHaveValue("New label");
   await newLabelInput.fill(labelName);
   await newLabelInput.press("Enter");
@@ -561,5 +566,71 @@ test.describe("Information view", () => {
 
     // The entry should be gone and the empty state should appear.
     await expect(infoSidebar.getByText("No information yet.")).toBeVisible();
+  });
+
+  test("an information label can be assigned to a piece of information", async ({
+    page,
+  }) => {
+    await signUpAndOpenProject(page, `info-label-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    // Open the file sidebar, then the information view.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+    await fileSidebar.getByRole("button", { name: "Open information view" }).click();
+    await expect(page.getByRole("heading", { name: "Information" })).toBeVisible();
+
+    const infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    // Create a new entry and give it a title.
+    await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
+    await expect(infoSidebar.locator("input[placeholder='Untitled']")).toBeVisible();
+    await infoSidebar.locator("input[placeholder='Untitled']").fill("Claim under review");
+
+    // Assign the default "Fact" information label from the picker.
+    await infoSidebar.getByRole("button", { name: "+ Label" }).click();
+    await infoSidebar.getByRole("button", { name: "Fact", exact: true }).click();
+
+    // The applied label shows a removable pill.
+    await expect(
+      infoSidebar.getByRole("button", { name: "Remove Fact" })
+    ).toBeVisible();
+  });
+});
+
+// ── Default labels ──────────────────────────────────────────────────────────────
+
+test.describe("Default labels", () => {
+  test("a new project seeds only the Done file label and the default information labels", async ({
+    page,
+  }) => {
+    await signUpAndOpenProject(page, `label-defaults-${Date.now()}@test.com`);
+
+    await page.getByRole("button", { name: "Project settings" }).click();
+    const settings = page.locator("div").filter({
+      has: page.getByRole("heading", { name: "Project Settings" }),
+    });
+    await expect(
+      settings.getByRole("heading", { name: "Project Settings" })
+    ).toBeVisible();
+
+    // File labels: only "Done" remains; the other old defaults are gone.
+    await expect(settings.getByText("File labels", { exact: true })).toBeVisible();
+    await expect(settings.getByText("Done", { exact: true })).toBeVisible();
+    await expect(settings.getByText("Not started", { exact: true })).toHaveCount(0);
+    await expect(settings.getByText("Not Reviewed", { exact: true })).toHaveCount(0);
+    await expect(settings.getByText("Dead end", { exact: true })).toHaveCount(0);
+
+    // Information labels: the four defaults are seeded.
+    await expect(
+      settings.getByText("Information labels", { exact: true })
+    ).toBeVisible();
+    await expect(settings.getByText("Fact", { exact: true })).toBeVisible();
+    await expect(settings.getByText("Opinion", { exact: true })).toBeVisible();
+    await expect(settings.getByText("Misinformation", { exact: true })).toBeVisible();
+    await expect(settings.getByText("Disinformation", { exact: true })).toBeVisible();
   });
 });

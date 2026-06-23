@@ -1,6 +1,6 @@
 {
-  "id": "a69127f6-517d-40a3-9b18-7b336d09b428",
-  "prevId": "c5d7e291-82f1-4b90-9c3a-fe4d8b021765",
+  "id": "04a9a11e-39f9-4b32-9203-b7876de57ea4",
+  "prevId": "a69127f6-517d-40a3-9b18-7b336d09b428",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -92,6 +92,65 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.file_drafts": {
+      "name": "file_drafts",
+      "schema": "",
+      "columns": {
+        "file_id": {
+          "name": "file_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot": {
+          "name": "snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "file_drafts_file_id_files_id_fk": {
+          "name": "file_drafts_file_id_files_id_fk",
+          "tableFrom": "file_drafts",
+          "tableTo": "files",
+          "columnsFrom": [
+            "file_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "file_drafts_file_id_user_id_pk": {
+          "name": "file_drafts_file_id_user_id_pk",
+          "columns": [
+            "file_id",
+            "user_id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -700,66 +759,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.information_labels": {
-      "name": "information_labels",
-      "schema": "",
-      "columns": {
-        "information_id": {
-          "name": "information_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label_id": {
-          "name": "label_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "information_labels_information_id_information_id_fk": {
-          "name": "information_labels_information_id_information_id_fk",
-          "tableFrom": "information_labels",
-          "tableTo": "information",
-          "columnsFrom": [
-            "information_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "information_labels_label_id_labels_id_fk": {
-          "name": "information_labels_label_id_labels_id_fk",
-          "tableFrom": "information_labels",
-          "tableTo": "labels",
-          "columnsFrom": [
-            "label_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "information_labels_information_id_label_id_pk": {
-          "name": "information_labels_information_id_label_id_pk",
-          "columns": [
-            "information_id",
-            "label_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.information_selections": {
       "name": "information_selections",
       "schema": "",
@@ -860,13 +859,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'#9ca3af'"
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'file'"
         }
       },
       "indexes": {},
