@@ -25,15 +25,13 @@ import {
 import { ZoomPluginPackage, useZoom } from "@embedpdf/plugin-zoom/react";
 
 import {
-  addSelection,
-  deleteSelection,
   getFileDownloadUrl,
-  getSelections,
   type FileDoc,
   type Label,
   type Selection,
 } from "@/lib/projects";
 import type { FileLock } from "./useFileLock";
+import type { FileDraft } from "./useFileDraft";
 import InformationSidebar from "./InformationSidebar";
 
 // Each modal instance hosts a single EmbedPDF document; a constant id is fine.
@@ -50,6 +48,9 @@ type PdfViewerModalProps = {
   // first edit checks the file out, and the lock is released when the modal
   // closes (see useFileLock / InformationSidebar).
   lock: FileLock;
+  // The shared working draft. Selections are marked/deleted against it in
+  // memory and persisted only on Save/Submit (issue #78).
+  draft: FileDraft;
   // The piece of information to make active on open (selected in the left
   // sidebar, scrolled to its first selection). Null opens with nothing active.
   initialInformationId: string | null;
@@ -61,6 +62,7 @@ export default function PdfViewerModal({
   file,
   labels,
   lock,
+  draft,
   initialInformationId,
   onClose,
 }: PdfViewerModalProps) {
@@ -165,6 +167,7 @@ export default function PdfViewerModal({
               file={file}
               labels={labels}
               lock={lock}
+              draft={draft}
               initialInformationId={initialInformationId}
               onClose={onClose}
             />
@@ -177,13 +180,14 @@ export default function PdfViewerModal({
 
 // ── inner body (runs inside the EmbedPDF provider) ─────────────────────────────
 
-type ViewerBodyProps = Omit<PdfViewerModalProps, "lock"> & { lock: FileLock };
+type ViewerBodyProps = PdfViewerModalProps;
 
 function ViewerBody({
   projectId,
   file,
   labels,
   lock,
+  draft,
   initialInformationId,
   onClose,
 }: ViewerBodyProps) {
@@ -196,31 +200,32 @@ function ViewerBody({
   // navigation. The sidebar reports it via onSelectedIdChange.
   const [activeId, setActiveId] = useState<string | null>(initialInformationId);
 
-  // The active information's selections, ordered by document location, plus the
-  // index the prev/next controls point at.
-  const [selections, setSelections] = useState<Selection[]>([]);
+  // The index the prev/next controls point at.
   const [currentIndex, setCurrentIndex] = useState(0);
 
   // Whether the user currently has live text selected (enables "Mark").
   const [hasLiveSelection, setHasLiveSelection] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Whether we still owe an initial scroll to the active info's first selection
   // once both the selections and the page layout are ready.
   const pendingInitialScroll = useRef(initialInformationId != null);
 
-  // Check-out is now manual (the File Details toolbar button); marking and
-  // deleting selections is gated on this user already holding the lock
-  // (`isHeldByMe`) rather than acquiring it implicitly here.
-  const refreshSelections = useCallback(
-    (infoId: string) =>
-      getSelections(projectId, file.id, infoId).then((rows) => {
-        setSelections(rows);
-        return rows;
-      }),
-    [projectId, file.id],
-  );
+  // The active information's selections come straight from the shared working
+  // draft (issue #78), ordered by document location — page, then top-to-bottom
+  // and left-to-right — which is the order the prev/next controls step through.
+  // Marking/deleting mutates the draft in memory; persistence is Save/Submit.
+  const selections = useMemo<Selection[]>(() => {
+    if (activeId == null) return [];
+    const info = draft.snapshot.information.find((i) => i.id === activeId);
+    if (!info) return [];
+    return [...info.selections].sort(
+      (a, b) =>
+        a.pageIndex - b.pageIndex ||
+        a.boundingTop - b.boundingTop ||
+        a.boundingLeft - b.boundingLeft,
+    );
+  }, [activeId, draft.snapshot.information]);
 
   // Centre a selection in the viewport. pageCoordinates are PDF-point values
   // (the scroll plugin applies the current scale itself).
@@ -236,21 +241,25 @@ function ViewerBody({
     [scrollApi],
   );
 
-  // Load the active info's selections whenever it changes. activeId only ever
-  // goes from null → an id (the list never deselects), so there's no stale list
-  // to clear synchronously here.
+  // Reset the prev/next cursor whenever the active info changes, and honour the
+  // open-to-first-selection request once, after layout is ready.
   useEffect(() => {
     if (activeId == null) return;
-    void refreshSelections(activeId).then((rows) => {
-      setCurrentIndex(0);
-      // Honour the open-to-first-selection request once, after layout is ready.
-      if (pendingInitialScroll.current && rows.length > 0) {
-        pendingInitialScroll.current = false;
-        // A short delay lets the first layout settle before scrolling.
-        setTimeout(() => scrollToSelection(rows[0]), 300);
-      }
-    });
-  }, [activeId, refreshSelections, scrollToSelection]);
+    setCurrentIndex(0);
+    if (pendingInitialScroll.current && selections.length > 0) {
+      pendingInitialScroll.current = false;
+      // A short delay lets the first layout settle before scrolling.
+      const first = selections[0];
+      setTimeout(() => scrollToSelection(first), 300);
+    }
+    // Only re-run when the active info changes (not on every selections edit).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
+  // Keep the prev/next cursor in range as selections are added/removed.
+  useEffect(() => {
+    setCurrentIndex((i) => Math.min(i, Math.max(0, selections.length - 1)));
+  }, [selections.length]);
 
   // Track whether there is a live selection so the Mark button can enable.
   useEffect(() => {
@@ -265,7 +274,6 @@ function ViewerBody({
     if (!selectionApi || activeId == null || !isHeldByMe || lockedByOther) return;
     const formatted = selectionApi.getFormattedSelection(DOC_ID);
     if (formatted.length === 0) return;
-    setBusy(true);
     setError(null);
     try {
       // getSelectedText resolves to one string per page the selection covers,
@@ -274,46 +282,34 @@ function ViewerBody({
       const texts = await selectionApi.getSelectedText(DOC_ID).toPromise();
       // A selection spanning multiple pages is stored as one row per page, so
       // each highlight sits on the page whose coordinates it uses and carries
-      // only that page's text. All page-rows are sent in a single request so
-      // the mark is saved atomically.
-      const rows = formatted.map((page, i) => ({
-        pageIndex: page.pageIndex,
-        boundingTop: page.rect.origin.y,
-        boundingLeft: page.rect.origin.x,
-        rects: page.segmentRects.map((r) => ({
-          x: r.origin.x,
-          y: r.origin.y,
-          width: r.size.width,
-          height: r.size.height,
-        })),
-        // Defensive: if the text array is shorter or misaligned (e.g. a page
-        // yielded no copyable text), fall back to "" rather than undefined so
-        // no row is left without a text value.
-        text: texts[i] ?? "",
-      }));
-      await addSelection(projectId, file.id, activeId, rows);
+      // only that page's text. Each page-row is staged into the working draft
+      // with its own client UUID; persistence happens on Save/Submit.
+      formatted.forEach((page, i) => {
+        draft.upsertSelection(activeId, {
+          id: crypto.randomUUID(),
+          pageIndex: page.pageIndex,
+          boundingTop: page.rect.origin.y,
+          boundingLeft: page.rect.origin.x,
+          rects: page.segmentRects.map((r) => ({
+            x: r.origin.x,
+            y: r.origin.y,
+            width: r.size.width,
+            height: r.size.height,
+          })),
+          // Defensive: if the text array is shorter or misaligned (e.g. a page
+          // yielded no copyable text), fall back to "" rather than undefined.
+          text: texts[i] ?? "",
+        });
+      });
       selectionApi.clear(DOC_ID);
-      await refreshSelections(activeId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to mark selection.");
-    } finally {
-      setBusy(false);
     }
   }
 
-  async function handleDeleteSelection(selectionId: string) {
+  function handleDeleteSelection(selectionId: string) {
     if (activeId == null || !isHeldByMe || lockedByOther) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteSelection(projectId, file.id, activeId, selectionId);
-      const rows = await refreshSelections(activeId);
-      setCurrentIndex((i) => Math.min(i, Math.max(0, rows.length - 1)));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to delete selection.");
-    } finally {
-      setBusy(false);
-    }
+    draft.removeSelection(activeId, selectionId);
   }
 
   function step(delta: number) {
@@ -335,6 +331,7 @@ function ViewerBody({
         file={file}
         labels={labels}
         lock={lock}
+        draft={draft}
         // Already inside the PDF viewer, so no "open in PDF viewer" affordance.
         canOpenPdf={false}
         onOpenPdfViewer={() => {}}
@@ -378,7 +375,7 @@ function ViewerBody({
             type="button"
             onClick={() => void handleMark()}
             disabled={
-              activeId == null || !hasLiveSelection || !isHeldByMe || lockedByOther || busy
+              activeId == null || !hasLiveSelection || !isHeldByMe || lockedByOther
             }
             className="flex h-8 items-center justify-center rounded-md bg-black px-3 text-xs font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -414,7 +411,7 @@ function ViewerBody({
                 <button
                   type="button"
                   onClick={() => void handleDeleteSelection(currentSelection.id)}
-                  disabled={!isHeldByMe || lockedByOther || busy}
+                  disabled={!isHeldByMe || lockedByOther}
                   className="flex h-8 items-center justify-center rounded-md border border-black/[.08] px-3 text-xs text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[.145] dark:text-red-400 dark:hover:bg-red-500/10"
                 >
                   Delete current selection

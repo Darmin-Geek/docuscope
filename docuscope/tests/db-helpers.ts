@@ -1,5 +1,13 @@
 import { db } from '../lib/drizzle/db';
-import { projects, files, folders, fileFolders, fileChunks, information } from '../lib/drizzle/schema';
+import {
+  projects,
+  projectContributors,
+  files,
+  folders,
+  fileFolders,
+  fileChunks,
+  information,
+} from '../lib/drizzle/schema';
 import { eq } from 'drizzle-orm';
 
 /** Create a minimal project record and return its UUID id. */
@@ -9,6 +17,17 @@ export async function createTestProject(title = 'Test Project'): Promise<string>
     .values({ title })
     .returning({ id: projects.id });
   return row.id;
+}
+
+/** Add a contributor (by email) so the user can see/open the project. */
+export async function addTestContributor(
+  projectId: string,
+  email: string,
+): Promise<void> {
+  await db
+    .insert(projectContributors)
+    .values({ projectId, email: email.trim().toLowerCase() })
+    .onConflictDoNothing();
 }
 
 /** Create a minimal file record without uploading to Storage. Returns the file id. */

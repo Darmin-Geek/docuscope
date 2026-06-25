@@ -1,29 +1,29 @@
 "use client";
 
 import {
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
-  type FocusEvent,
   type KeyboardEvent,
 } from "react";
 import {
-  addInformation,
   addLabelToInformation,
-  deleteInformation,
   getInformation,
   newInformationId,
   removeLabelFromInformation,
-  updateInformation,
   type FileDoc,
-  type Information,
   type Label,
 } from "@/lib/projects";
 import type { FileLock } from "./useFileLock";
+import type { FileDraft } from "./useFileDraft";
 import DeleteInformationModal from "./DeleteInformationModal";
 import LabelPill from "./LabelPill";
+import AdmiraltyCodeSelect from "./AdmiraltyCodeSelect";
+
+// One entry in the working draft's information list, including its staged
+// selections. The editor shows/edits the Information fields; selections are
+// carried through unchanged so a Save/Submit persists them alongside.
+type DraftInformation = FileDraft["snapshot"]["information"][number];
 
 type InformationSidebarProps = {
   projectId: string;
@@ -35,6 +35,9 @@ type InformationSidebarProps = {
   // file out, which blocks other contributors from the file details too, and a
   // detail edit elsewhere likewise greys these fields out (see useFileLock).
   lock: FileLock;
+  // The shared working draft. Information add/edit/delete mutate this in memory;
+  // nothing is persisted until Save/Submit in the File Details sidebar.
+  draft: FileDraft;
   // Whether this file can be opened in the embedded PDF viewer (PDFs only).
   canOpenPdf: boolean;
   // Opens the PDF viewer with the given information made active, scrolled to its
@@ -54,11 +57,11 @@ type InformationSidebarProps = {
   onSelectedIdChange?: (id: string | null) => void;
 };
 
-// Trim and collapse a blank field to null so cleared values are stored as
-// "unset" rather than an empty string (mirrors FileSidebar / docs/dataModel.md).
-function trimmedOrNull(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+// A blank field is stored as "unset" (null) rather than an empty string. The
+// raw value is otherwise kept verbatim so the controlled input can hold
+// interior/trailing spaces while the user is still typing (mirrors FileSidebar).
+function emptyToNull(value: string): string | null {
+  return value.length > 0 ? value : null;
 }
 
 export default function InformationSidebar({
@@ -66,6 +69,7 @@ export default function InformationSidebar({
   file,
   labels,
   lock,
+  draft,
   canOpenPdf,
   onOpenPdfViewer,
   onClose,
@@ -76,29 +80,14 @@ export default function InformationSidebar({
   const { lockedByOther, isHeldByMe, editorName } = lock;
   const embedded = variant === "embedded";
 
-  const [items, setItems] = useState<Information[]>([]);
-  // Entries created locally that the server hasn't confirmed yet.
-  // They let a new entry appear in the list and open for editing immediately,
-  // without waiting for the POST response to come back.
-  const [pending, setPending] = useState<Information[]>([]);
-
-  // The list shown in the UI: live entries plus any pending creates not yet
-  // present in the live data. Built through a Map keyed by id so every entry is
-  // unique — an optimistic create and its echoed-back live copy share an id, so
-  // this guarantees React never sees duplicate keys while they briefly coexist.
-  const allItems = useMemo(() => {
-    const byId = new Map<string, Information>();
-    for (const entry of items) byId.set(entry.id, entry);
-    for (const entry of pending) {
-      if (!byId.has(entry.id)) byId.set(entry.id, entry);
-    }
-    return [...byId.values()];
-  }, [items, pending]);
+  // The information list comes straight from the shared working draft (issue
+  // #78). Add/edit/delete mutate that snapshot in memory; nothing is persisted
+  // until Save/Submit in the File Details sidebar.
+  const allItems = draft.snapshot.information;
 
   // The entry open in the editor; `selectedId` names the existing entry being
   // edited. With nothing selected (or when the selected entry has been deleted),
-  // only the title list (top third) is shown. New entries are created up front
-  // so they appear in the list immediately, so there is no unsaved-draft state.
+  // only the title list (top third) is shown.
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const selectedItem =
     selectedId != null
@@ -116,16 +105,34 @@ export default function InformationSidebar({
     onSelectedIdChangeRef.current?.(selectedId);
   }, [selectedId]);
 
-  // The editor's fields. Title is always a plain string; the rest are paragraph
-  // text areas, stored null when blank (see docs/dataModel.md).
-  const [title, setTitle] = useState("");
-  const [text, setText] = useState("");
-  const [bias, setBias] = useState("");
-  const [reliability, setReliability] = useState("");
-  const [credibility, setCredibility] = useState("");
+  // The editor reads its field values straight from the selected snapshot row;
+  // an edit writes the updated row back through draft.upsertInformation. The
+  // raw value is kept verbatim (blank → null) so the controlled inputs hold
+  // interior/trailing spaces while typing.
+  const title = selectedItem?.informationTitle ?? "";
+  const text = selectedItem?.informationText ?? "";
+  const bias = selectedItem?.overallBias ?? "";
+  const reliability = selectedItem?.informationReliability ?? "";
+  const credibility = selectedItem?.informationCredibility ?? "";
+  const reliabilityCode = selectedItem?.informationReliabilityCode ?? null;
+  const credibilityCode = selectedItem?.informationCredibilityCode ?? null;
 
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Label ids per information id, kept separate from the draft because labels
+  // are persisted immediately via the label API (not through save/submit).
+  const [itemLabels, setItemLabels] = useState<Map<string, string[]>>(new Map());
+
+  useEffect(() => {
+    let active = true;
+    getInformation(projectId, file.id)
+      .then((rows) => {
+        if (!active) return;
+        setItemLabels(new Map(rows.map((r) => [r.id, r.labels])));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [projectId, file.id]);
 
   // Whether the "add label" picker (the unassigned information labels) is open,
   // plus any error from assigning/removing a label.
@@ -133,152 +140,71 @@ export default function InformationSidebar({
   const [labelError, setLabelError] = useState<string | null>(null);
 
   // The entry awaiting delete confirmation, or null when the modal is closed.
-  const [deleteTarget, setDeleteTarget] = useState<Information | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DraftInformation | null>(null);
 
-  // Whether *we* are mid-edit in the form, so the live subscription doesn't
-  // overwrite in-progress text (mirrors FileSidebar's editingFields guard).
-  const editingInfo = useRef(false);
+  function patchSelected(fields: Partial<Omit<DraftInformation, "id" | "selections">>) {
+    if (!selectedItem) return;
+    draft.upsertInformation({ ...selectedItem, ...fields });
+  }
 
-  // Fetch the current list and merge it with any pending optimistic creates.
-  const refreshItems = useCallback(() => {
-    return getInformation(projectId, file.id).then((live) => {
-      setItems(live);
-      setPending((prev) =>
-        prev.filter((entry) => !live.some((entry2) => entry2.id === entry.id)),
-      );
-    });
-  }, [projectId, file.id]);
-
-  // Load the list on mount and whenever the file changes.
-  useEffect(() => {
-    void refreshItems();
-  }, [refreshItems]);
-
-  // Load the selected entry's saved values into the form. Skipped while we are
-  // editing (so we don't clobber typing). If the open entry disappears (deleted
-  // by another user) `selectedItem` becomes null, which closes the editor on its
-  // own.
-  useEffect(() => {
-    if (selectedItem == null || editingInfo.current) return;
-    setTitle(selectedItem.informationTitle);
-    setText(selectedItem.informationText ?? "");
-    setBias(selectedItem.overallBias ?? "");
-    setReliability(selectedItem.informationReliability ?? "");
-    setCredibility(selectedItem.informationCredibility ?? "");
-  }, [selectedItem]);
-
-  // If another user grabs the lock, stop guarding the fields so the live values
-  // replace whatever we had typed and the disabled inputs show the truth.
-  useEffect(() => {
-    if (lockedByOther) editingInfo.current = false;
-  }, [lockedByOther]);
-
-  function openEntry(item: Information) {
-    setError(null);
+  function openEntry(item: DraftInformation) {
     setSelectedId(item.id);
   }
 
-  // Create a blank entry and open it for editing right away. The entry is added
-  // to `pending` so it appears in the list and the editor opens immediately.
-  // Once the API call resolves, refreshItems replaces the pending entry with
-  // the server copy.
+  // Create a blank entry in the snapshot and open it for editing immediately.
+  // The client UUID lets the row carry selections before it is ever persisted.
   function startNew() {
-    setError(null);
     const id = newInformationId(projectId, file.id);
-    const draft: Information = {
+    draft.upsertInformation({
       id,
       informationTitle: "",
       informationText: null,
       overallBias: null,
       informationReliability: null,
       informationCredibility: null,
-      labels: [],
-    };
-    setPending((prev) => [...prev, draft]);
+      informationReliabilityCode: null,
+      informationCredibilityCode: null,
+      selections: [],
+    });
+    setItemLabels((prev) => { const m = new Map(prev); m.set(id, []); return m; });
     setSelectedId(id);
-    addInformation(projectId, file.id, {
-      informationTitle: draft.informationTitle,
-      informationText: draft.informationText,
-      overallBias: draft.overallBias,
-      informationReliability: draft.informationReliability,
-      informationCredibility: draft.informationCredibility,
-    }, id)
-      .then(() => refreshItems())
-      .catch((err: unknown) => {
-        setError(
-          err instanceof Error ? err.message : "Failed to add information.",
-        );
-      });
   }
 
-  // Check-out is now manual (the File Details toolbar button), so editing here no
-  // longer acquires or releases the lock. Closing while a field is focused can't
-  // rely on the editor's blur firing (the inputs unmount), so save here first.
+  // Check-out is manual (the File Details toolbar button); closing just hides
+  // the view — edits are already in the working draft, persisted only by
+  // Save/Submit.
   function handleClose() {
-    if (isHeldByMe) {
-      void handleSave();
-    }
     onClose();
   }
 
-  function handleGroupBlur(event: FocusEvent<HTMLDivElement>) {
-    // Ignore blurs that just move focus between fields within the group.
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-    void handleSave();
-  }
-
-  async function handleSave() {
-    if (!selectedId) return;
-    const fields = {
-      informationTitle: title.trim(),
-      informationText: trimmedOrNull(text),
-      overallBias: trimmedOrNull(bias),
-      informationReliability: trimmedOrNull(reliability),
-      informationCredibility: trimmedOrNull(credibility),
-    };
-
-    setSaving(true);
-    setError(null);
-    try {
-      await updateInformation(projectId, file.id, selectedId, fields);
-      await refreshItems();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // Enter submits from the single-line title input; the paragraph textareas keep
-  // Enter for newlines and instead save on blur.
+  // Enter commits the single-line title input (a no-op beyond losing focus now
+  // that edits write straight to the draft); the paragraph textareas keep Enter
+  // for newlines.
   function handleTitleKeyDown(event: KeyboardEvent) {
     if (event.key === "Enter") {
       event.preventDefault();
-      void handleSave();
+      (event.target as HTMLInputElement).blur();
     }
   }
 
   async function handleConfirmDelete() {
     if (!deleteTarget) return;
-    await deleteInformation(projectId, file.id, deleteTarget.id);
+    draft.removeInformation(deleteTarget.id);
     if (selectedId === deleteTarget.id) {
       setSelectedId(null);
     }
     setDeleteTarget(null);
-    await refreshItems();
   }
 
-  // Apply a label add/remove to a piece of information in both the live and
-  // pending lists, so the change shows immediately regardless of which list the
-  // entry currently lives in.
   function applyLabelChange(
     infoId: string,
     next: (current: string[]) => string[],
   ) {
-    const update = (entry: Information) =>
-      entry.id === infoId ? { ...entry, labels: next(entry.labels) } : entry;
-    setItems((prev) => prev.map(update));
-    setPending((prev) => prev.map(update));
+    setItemLabels((prev) => {
+      const m = new Map(prev);
+      m.set(infoId, next(m.get(infoId) ?? []));
+      return m;
+    });
   }
 
   async function handleAddLabel(labelId: string) {
@@ -318,11 +244,12 @@ export default function InformationSidebar({
 
   // Resolve the selected entry's label ids against the project's information
   // labels, preserving the project's order; the rest are offered in the picker.
+  const currentLabels = itemLabels.get(selectedId ?? "") ?? [];
   const appliedLabels = labels.filter((label) =>
-    selectedItem?.labels.includes(label.id),
+    currentLabels.includes(label.id),
   );
   const availableLabels = labels.filter(
-    (label) => !selectedItem?.labels.includes(label.id),
+    (label) => !currentLabels.includes(label.id),
   );
 
   const fieldClass =
@@ -430,10 +357,7 @@ export default function InformationSidebar({
                 Open in PDF viewer
               </button>
             )}
-            <div
-              className="flex flex-col gap-3"
-              onBlur={handleGroupBlur}
-            >
+            <div className="flex flex-col gap-3">
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-black dark:text-zinc-50">
                   Title
@@ -441,7 +365,9 @@ export default function InformationSidebar({
                 <input
                   type="text"
                   value={title}
-                  onChange={(event) => setTitle(event.target.value)}
+                  onChange={(event) =>
+                    patchSelected({ informationTitle: event.target.value })
+                  }
                   onKeyDown={handleTitleKeyDown}
                   disabled={!isHeldByMe || lockedByOther}
                   placeholder="Untitled"
@@ -501,7 +427,9 @@ export default function InformationSidebar({
                 </span>
                 <textarea
                   value={text}
-                  onChange={(event) => setText(event.target.value)}
+                  onChange={(event) =>
+                    patchSelected({ informationText: emptyToNull(event.target.value) })
+                  }
                   disabled={!isHeldByMe || lockedByOther}
                   rows={4}
                   className={fieldClass}
@@ -514,12 +442,24 @@ export default function InformationSidebar({
                 </span>
                 <textarea
                   value={bias}
-                  onChange={(event) => setBias(event.target.value)}
+                  onChange={(event) =>
+                    patchSelected({ overallBias: emptyToNull(event.target.value) })
+                  }
                   disabled={!isHeldByMe || lockedByOther}
                   rows={3}
                   className={fieldClass}
                 />
               </label>
+
+              <AdmiraltyCodeSelect
+                label="Reliability Rating"
+                kind="reliability"
+                value={reliabilityCode}
+                onChange={(code) =>
+                  patchSelected({ informationReliabilityCode: code })
+                }
+                disabled={!isHeldByMe || lockedByOther}
+              />
 
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-black dark:text-zinc-50">
@@ -527,12 +467,26 @@ export default function InformationSidebar({
                 </span>
                 <textarea
                   value={reliability}
-                  onChange={(event) => setReliability(event.target.value)}
+                  onChange={(event) =>
+                    patchSelected({
+                      informationReliability: emptyToNull(event.target.value),
+                    })
+                  }
                   disabled={!isHeldByMe || lockedByOther}
                   rows={3}
                   className={fieldClass}
                 />
               </label>
+
+              <AdmiraltyCodeSelect
+                label="Credibility Rating"
+                kind="credibility"
+                value={credibilityCode}
+                onChange={(code) =>
+                  patchSelected({ informationCredibilityCode: code })
+                }
+                disabled={!isHeldByMe || lockedByOther}
+              />
 
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-black dark:text-zinc-50">
@@ -540,20 +494,17 @@ export default function InformationSidebar({
                 </span>
                 <textarea
                   value={credibility}
-                  onChange={(event) => setCredibility(event.target.value)}
+                  onChange={(event) =>
+                    patchSelected({
+                      informationCredibility: emptyToNull(event.target.value),
+                    })
+                  }
                   disabled={!isHeldByMe || lockedByOther}
                   rows={3}
                   className={fieldClass}
                 />
               </label>
             </div>
-
-            {saving && (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Saving…</p>
-            )}
-            {error && (
-              <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
-            )}
           </div>
         )}
       </div>

@@ -13,8 +13,11 @@ import {
   information as informationTable,
   informationSelections as selectionsTable,
   ocrJobs,
+  fileDrafts,
+  type FileDraftSnapshot,
 } from './drizzle/schema';
 import { getUidForEmail } from './users.server';
+import { validateDraftForSubmit } from './draftValidation';
 import type {
   Project,
   Folder,
@@ -97,6 +100,8 @@ async function attachLabels(rows: FileRow[]): Promise<FileDoc[]> {
     source: r.source,
     fileReliability: r.fileReliability,
     fileCredibility: r.fileCredibility,
+    fileReliabilityCode: r.fileReliabilityCode,
+    fileCredibilityCode: r.fileCredibilityCode,
     checkedOutBy: r.checkedOutBy,
     labels: map.get(r.id) ?? [],
     folderId: r.folderId,
@@ -479,6 +484,8 @@ export async function createFileRecord(
     source: null,
     fileReliability: null,
     fileCredibility: null,
+    fileReliabilityCode: null,
+    fileCredibilityCode: null,
     checkedOutBy: null,
     labels: [],
     folderId: folderId,
@@ -603,6 +610,8 @@ export async function updateFileMetadata(
     source: string | null;
     fileReliability: string | null;
     fileCredibility: string | null;
+    fileReliabilityCode: string | null;
+    fileCredibilityCode: string | null;
   },
 ): Promise<void> {
   await db
@@ -681,6 +690,8 @@ export async function getInformation(
     overallBias: r.overallBias,
     informationReliability: r.informationReliability,
     informationCredibility: r.informationCredibility,
+    informationReliabilityCode: r.informationReliabilityCode,
+    informationCredibilityCode: r.informationCredibilityCode,
     labels: labelMap.get(r.id) ?? [],
   }));
 }
@@ -821,6 +832,176 @@ export async function deleteSelection(
         eq(selectionsTable.informationId, informationId),
       ),
     );
+}
+
+// ── drafts (manual save / submit, issue #78) ────────────────────────────────────
+
+// Throws 'Conflict' (mapped to 409 by apiError) unless the file is either
+// unheld or checked out by `uid`. Mirrors the per-route #86 guard so every
+// draft/submit mutation enforces the same rule in one place.
+export async function requireCheckoutHolder(
+  projectId: string,
+  fileId: string,
+  uid: string,
+): Promise<void> {
+  const file = await getFile(projectId, fileId);
+  if (file.checkedOutBy && file.checkedOutBy !== uid) {
+    throw new Error('Conflict');
+  }
+}
+
+// Return the staged snapshot for (fileId, uid), or null if none exists.
+export async function getDraft(
+  projectId: string,
+  fileId: string,
+  uid: string,
+): Promise<FileDraftSnapshot | null> {
+  // Verify the file belongs to this project before exposing any draft.
+  await getFile(projectId, fileId);
+  const [row] = await db
+    .select({ snapshot: fileDrafts.snapshot })
+    .from(fileDrafts)
+    .where(and(eq(fileDrafts.fileId, fileId), eq(fileDrafts.userId, uid)))
+    .limit(1);
+  return row?.snapshot ?? null;
+}
+
+// Upsert the draft snapshot for (fileId, uid). Never touches the main tables.
+export async function saveDraft(
+  projectId: string,
+  fileId: string,
+  uid: string,
+  snapshot: FileDraftSnapshot,
+): Promise<void> {
+  await getFile(projectId, fileId);
+  await db
+    .insert(fileDrafts)
+    .values({ fileId, userId: uid, snapshot, updatedAt: Date.now() })
+    .onConflictDoUpdate({
+      target: [fileDrafts.fileId, fileDrafts.userId],
+      set: { snapshot, updatedAt: Date.now() },
+    });
+}
+
+// Delete the draft row for (fileId, uid) — a no-op if none exists.
+export async function discardDraft(
+  projectId: string,
+  fileId: string,
+  uid: string,
+): Promise<void> {
+  await db
+    .delete(fileDrafts)
+    .where(and(eq(fileDrafts.fileId, fileId), eq(fileDrafts.userId, uid)));
+}
+
+// Promote the snapshot into the main tables and clear the draft, all in one
+// transaction so a failure leaves no half-published state. The snapshot comes
+// from the request body (the freshest client state), so a user can submit work
+// they typed but never explicitly Saved.
+//
+// Reconciliation per file:
+//   - files: overwrite the editable metadata columns.
+//   - information: upsert rows present in the snapshot; delete rows that exist
+//     for the file but are absent from the snapshot.
+//   - information_selections: per surviving information row, upsert the
+//     snapshot's selections and delete any stored selection not in it.
+export async function submitDraft(
+  projectId: string,
+  fileId: string,
+  uid: string,
+  snapshot: FileDraftSnapshot,
+): Promise<void> {
+  // Confirm the file belongs to this project before mutating anything.
+  await getFile(projectId, fileId);
+
+  // Admiralty-code gate (issue #80): a Reliability/Credibility code set without
+  // its matching free-text description blocks Submit (Save is never gated).
+  // Authoritative check — the client disables Submit too, but never trust it.
+  const invalid = validateDraftForSubmit(snapshot);
+  if (invalid) throw new Error('Invalid');
+
+  await db.transaction(async (tx) => {
+    // (1) file metadata
+    await tx
+      .update(filesTable)
+      .set(snapshot.metadata)
+      .where(and(eq(filesTable.id, fileId), eq(filesTable.projectId, projectId)));
+
+    // (2) information — delete rows no longer in the snapshot, then upsert.
+    const keepInfoIds = snapshot.information.map((i) => i.id);
+    const existingInfo = await tx
+      .select({ id: informationTable.id })
+      .from(informationTable)
+      .where(eq(informationTable.fileId, fileId));
+    const infoToDelete = existingInfo
+      .map((r) => r.id)
+      .filter((id) => !keepInfoIds.includes(id));
+    if (infoToDelete.length > 0) {
+      // information_selections cascade-delete with their information row.
+      await tx
+        .delete(informationTable)
+        .where(
+          and(
+            eq(informationTable.fileId, fileId),
+            inArray(informationTable.id, infoToDelete),
+          ),
+        );
+    }
+
+    for (const info of snapshot.information) {
+      const fields = {
+        informationTitle: info.informationTitle,
+        informationText: info.informationText,
+        overallBias: info.overallBias,
+        informationReliability: info.informationReliability,
+        informationCredibility: info.informationCredibility,
+        informationReliabilityCode: info.informationReliabilityCode,
+        informationCredibilityCode: info.informationCredibilityCode,
+      };
+      await tx
+        .insert(informationTable)
+        .values({ id: info.id, fileId, ...fields })
+        .onConflictDoUpdate({ target: informationTable.id, set: fields });
+
+      // (3) selections for this information row — delete absent, upsert present.
+      const keepSelIds = info.selections.map((s) => s.id);
+      const existingSel = await tx
+        .select({ id: selectionsTable.id })
+        .from(selectionsTable)
+        .where(eq(selectionsTable.informationId, info.id));
+      const selToDelete = existingSel
+        .map((r) => r.id)
+        .filter((id) => !keepSelIds.includes(id));
+      if (selToDelete.length > 0) {
+        await tx
+          .delete(selectionsTable)
+          .where(
+            and(
+              eq(selectionsTable.informationId, info.id),
+              inArray(selectionsTable.id, selToDelete),
+            ),
+          );
+      }
+      for (const sel of info.selections) {
+        const selFields = {
+          pageIndex: sel.pageIndex,
+          boundingTop: sel.boundingTop,
+          boundingLeft: sel.boundingLeft,
+          rects: sel.rects,
+          text: sel.text,
+        };
+        await tx
+          .insert(selectionsTable)
+          .values({ id: sel.id, informationId: info.id, ...selFields })
+          .onConflictDoUpdate({ target: selectionsTable.id, set: selFields });
+      }
+    }
+
+    // (4) clear the stored draft.
+    await tx
+      .delete(fileDrafts)
+      .where(and(eq(fileDrafts.fileId, fileId), eq(fileDrafts.userId, uid)));
+  });
 }
 
 // ── labels ────────────────────────────────────────────────────────────────────

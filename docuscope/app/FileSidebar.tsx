@@ -4,13 +4,10 @@ import {
   useEffect,
   useRef,
   useState,
-  type FocusEvent,
   type KeyboardEvent,
 } from "react";
 import {
   getFileDownloadUrl,
-  getFile,
-  updateFileMetadata,
   addLabelToFile,
   removeLabelFromFile,
   getFolders,
@@ -25,10 +22,12 @@ import {
 import {
   findFolderContainingFile,
 } from "@/lib/folderTree";
-import { getUserProfile } from "@/lib/users";
 import type { FileLock } from "./useFileLock";
+import type { FileDraft } from "./useFileDraft";
 import LabelPill from "./LabelPill";
 import MoveFileModal from "./MoveFileModal";
+import DraftConflictModal from "./DraftConflictModal";
+import AdmiraltyCodeSelect from "./AdmiraltyCodeSelect";
 
 type FileSidebarProps = {
   projectId: string;
@@ -39,6 +38,12 @@ type FileSidebarProps = {
   // The file's shared check-out lock, coordinated with the information sidebar
   // so editing either side checks the whole file out (see useFileLock).
   lock: FileLock;
+  // The shared working draft for this file (metadata + information +
+  // selections). Save stages it; Submit publishes it (see useFileDraft).
+  draft: FileDraft;
+  // Called after a successful Submit so the parent can refresh its file list to
+  // show the now-published metadata.
+  onSubmitted: () => void;
   // Opens the information sidebar to the left of this one.
   onOpenInformation: () => void;
   // Opens the embedded PDF viewer modal (only rendered for PDF files).
@@ -86,11 +91,20 @@ function dateInputToTimestamp(value: string): number | null {
   return Math.floor(new Date(year, month - 1, day).getTime() / 1000);
 }
 
+// A blank field is stored as "unset" (null) rather than an empty string. The
+// raw value is otherwise kept verbatim so the controlled input can hold
+// interior/trailing spaces while the user is still typing.
+function emptyToNull(value: string): string | null {
+  return value.length > 0 ? value : null;
+}
+
 export default function FileSidebar({
   projectId,
   file,
   labels,
   lock,
+  draft,
+  onSubmitted,
   onOpenInformation,
   onOpenPdfViewer,
   onClose,
@@ -98,26 +112,58 @@ export default function FileSidebar({
   onMoved,
   onLabelsChanged,
 }: FileSidebarProps) {
-  const [author, setAuthor] = useState(file.author ?? "");
-  const [dateValue, setDateValue] = useState(
-    timestampToDateInput(file.createdDate),
-  );
-  const [overallBias, setOverallBias] = useState(file.overallBias ?? "");
-  const [source, setSource] = useState(file.source ?? "");
-  const [reliability, setReliability] = useState(file.fileReliability ?? "");
-  const [credibility, setCredibility] = useState(file.fileCredibility ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Metadata fields read/write the shared working draft (issue #78) — no local
+  // field state and no save-on-blur; only Save/Submit persist anything. The
+  // <input>/<textarea> elements want strings, so null is shown as "".
+  const meta = draft.snapshot.metadata;
+  const author = meta.author ?? "";
+  const dateValue = timestampToDateInput(meta.createdDate);
+  const overallBias = meta.overallBias ?? "";
+  const source = meta.source ?? "";
+  const reliability = meta.fileReliability ?? "";
+  const credibility = meta.fileCredibility ?? "";
+  const reliabilityCode = meta.fileReliabilityCode;
+  const credibilityCode = meta.fileCredibilityCode;
 
   // The shared lock state. `isHeldByMe` is true once this user has explicitly
   // checked the file out via the toolbar button; the detail fields are editable
   // only then. `lockedByOther` means a different user holds it.
   const { lockedByOther, isHeldByMe, editorName } = lock;
 
-  // Whether *we* are currently editing these file-detail fields (between
-  // focusing a field and focus leaving the group). A ref so the live
-  // subscription can avoid overwriting our in-progress edits.
-  const editingFields = useRef(false);
+  // Single extensible predicate reserved for the future "disable submit until a
+  // task is done" feature (issue #78). Default false; nothing feeds it yet.
+  const submitLocked = false;
+
+  // Draft resolution while the file is checked out by us (issue #78 §4.2).
+  // Whenever we hold the file and a stored draft exists, decide once what to do
+  // with it:
+  //   - no conflict (draft only fills empty fields): silently load the draft.
+  //   - conflict (draft would overwrite a filled field): open the modal and let
+  //     the user choose "Use my draft" or "Discard my draft".
+  // This covers both a fresh check-out and reopening a file we already hold
+  // (e.g. after a page reload). `resolved` guards against re-prompting; it
+  // resets when the file is no longer held by us so the next check-out re-runs.
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
+  const resolved = useRef(false);
+  useEffect(() => {
+    if (!isHeldByMe) {
+      resolved.current = false;
+      return;
+    }
+    // Wait until the draft has finished loading so hasDraft/conflict are known.
+    if (draft.loading || resolved.current) return;
+    // Resolve exactly once per checked-out session: applying or prompting only
+    // for a draft that already existed when we entered this session. Saves the
+    // user makes afterwards (which also set hasDraft) must not re-trigger this.
+    resolved.current = true;
+    if (!draft.hasDraft) return;
+    if (draft.conflictsOnCheckout) {
+      setConflictModalOpen(true);
+    } else {
+      // Nothing being overwritten — just bring the draft into the editor.
+      draft.applyDraft();
+    }
+  }, [isHeldByMe, draft.loading, draft.hasDraft, draft.conflictsOnCheckout, draft]);
 
   // Whether the "add label" picker (the unassigned labels) is showing.
   const [pickingLabel, setPickingLabel] = useState(false);
@@ -359,78 +405,37 @@ export default function FileSidebar({
     };
   }, [projectId, file.id, file.storageReference, kind, previewRefresh]);
 
-  // When another editor releases the lock, fetch the latest saved values so
-  // the form shows what they left behind before we start editing.
-  const prevLockedRef = useRef(false);
-  useEffect(() => {
-    const wasLocked = prevLockedRef.current;
-    prevLockedRef.current = lockedByOther;
-    if (wasLocked && !lockedByOther && !editingFields.current) {
-      getFile(projectId, file.id)
-        .then((live) => {
-          if (!editingFields.current) {
-            setAuthor(live.author ?? "");
-            setDateValue(timestampToDateInput(live.createdDate));
-            setOverallBias(live.overallBias ?? "");
-            setSource(live.source ?? "");
-            setReliability(live.fileReliability ?? "");
-            setCredibility(live.fileCredibility ?? "");
-          }
-        })
-        .catch(() => {});
-    }
-  }, [lockedByOther, projectId, file.id]);
-
-  // If another user grabs the lock (e.g. we lost a claim race), stop guarding
-  // the fields so the incoming snapshot can replace whatever we had typed.
-  useEffect(() => {
-    if (lockedByOther) editingFields.current = false;
-  }, [lockedByOther]);
-
-  // Check-out is now manual (the toolbar button), so focusing a field no longer
-  // acquires the lock. Focus leaving the field group still saves the latest text
-  // so edits persist without an explicit save, but the lock stays held until the
-  // user checks the file back in.
-  function handleGroupBlur(event: FocusEvent<HTMLDivElement>) {
-    // Ignore blurs that just move focus between fields within the group.
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-    void handleSave();
+  // Field edits flow into the shared working draft. Save/Submit (the buttons
+  // below) are the only things that persist; blur writes nothing (issue #78).
+  function handleSave() {
+    void draft.save();
   }
 
-  // Trim and collapse a blank field to null so cleared values are stored as
-  // "unset" rather than an empty string (see docs/dataModel.md).
-  function trimmedOrNull(value: string): string | null {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    setError(null);
-    const metadata = {
-      author: trimmedOrNull(author),
-      createdDate: dateInputToTimestamp(dateValue),
-      overallBias: trimmedOrNull(overallBias),
-      source: trimmedOrNull(source),
-      fileReliability: trimmedOrNull(reliability),
-      fileCredibility: trimmedOrNull(credibility),
-    };
-    try {
-      await updateFileMetadata(projectId, file.id, metadata);
-      onSaved({ ...file, ...metadata });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save.");
-    } finally {
-      setSaving(false);
+  async function handleSubmit() {
+    await draft.submit();
+    // Reflect the now-published metadata in the table and the parent list.
+    if (!draft.error) {
+      onSaved({
+        ...file,
+        author: draft.snapshot.metadata.author,
+        createdDate: draft.snapshot.metadata.createdDate,
+        overallBias: draft.snapshot.metadata.overallBias,
+        source: draft.snapshot.metadata.source,
+        fileReliability: draft.snapshot.metadata.fileReliability,
+        fileCredibility: draft.snapshot.metadata.fileCredibility,
+        fileReliabilityCode: draft.snapshot.metadata.fileReliabilityCode,
+        fileCredibilityCode: draft.snapshot.metadata.fileCredibilityCode,
+      });
+      onSubmitted();
     }
   }
 
-  // Enter submits from any single-line input. The paragraph textareas keep Enter
-  // for newlines and instead submit when they lose focus (see onBlur below).
+  // Enter commits a single-line input by triggering Save. The paragraph
+  // textareas keep Enter for newlines.
   function handleInputKeyDown(event: KeyboardEvent) {
     if (event.key === "Enter") {
       event.preventDefault();
-      void handleSave();
+      handleSave();
     }
   }
 
@@ -577,11 +582,11 @@ export default function FileSidebar({
           <p className="text-xs text-red-600 dark:text-red-400">{moveError}</p>
         )}
 
-        {/* The text-entry fields share one blur boundary: focus leaving the whole
-            group saves the latest text. Editing requires the file to be checked
-            out to this user (the toolbar button); every field is disabled and
-            greyed out otherwise. */}
-        <div className="contents" onBlur={handleGroupBlur}>
+        {/* The text-entry fields write into the shared working draft; nothing
+            is persisted until Save/Submit (issue #78). Editing requires the
+            file to be checked out to this user (the toolbar button); every
+            field is disabled and greyed out otherwise. */}
+        <div className="contents">
           <label className="flex items-center gap-2">
             <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
               Author
@@ -589,7 +594,9 @@ export default function FileSidebar({
             <input
               type="text"
               value={author}
-              onChange={(event) => setAuthor(event.target.value)}
+              onChange={(event) =>
+                draft.setMetadata({ author: emptyToNull(event.target.value) })
+              }
               onKeyDown={handleInputKeyDown}
               disabled={!isHeldByMe || lockedByOther}
               placeholder="Unknown"
@@ -604,7 +611,11 @@ export default function FileSidebar({
             <input
               type="date"
               value={dateValue}
-              onChange={(event) => setDateValue(event.target.value)}
+              onChange={(event) =>
+                draft.setMetadata({
+                  createdDate: dateInputToTimestamp(event.target.value),
+                })
+              }
               onKeyDown={handleInputKeyDown}
               disabled={!isHeldByMe || lockedByOther}
               className="h-7 min-w-0 flex-1 rounded-md border border-black/[.08] bg-transparent px-2 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4] dark:[color-scheme:dark]"
@@ -617,7 +628,9 @@ export default function FileSidebar({
             </span>
             <textarea
               value={source}
-              onChange={(event) => setSource(event.target.value)}
+              onChange={(event) =>
+                draft.setMetadata({ source: emptyToNull(event.target.value) })
+              }
               disabled={!isHeldByMe || lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
@@ -630,12 +643,22 @@ export default function FileSidebar({
             </span>
             <textarea
               value={overallBias}
-              onChange={(event) => setOverallBias(event.target.value)}
+              onChange={(event) =>
+                draft.setMetadata({ overallBias: emptyToNull(event.target.value) })
+              }
               disabled={!isHeldByMe || lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
           </label>
+
+          <AdmiraltyCodeSelect
+            label="Reliability Rating"
+            kind="reliability"
+            value={reliabilityCode}
+            onChange={(code) => draft.setMetadata({ fileReliabilityCode: code })}
+            disabled={!isHeldByMe || lockedByOther}
+          />
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
@@ -643,12 +666,24 @@ export default function FileSidebar({
             </span>
             <textarea
               value={reliability}
-              onChange={(event) => setReliability(event.target.value)}
+              onChange={(event) =>
+                draft.setMetadata({
+                  fileReliability: emptyToNull(event.target.value),
+                })
+              }
               disabled={!isHeldByMe || lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
           </label>
+
+          <AdmiraltyCodeSelect
+            label="Credibility Rating"
+            kind="credibility"
+            value={credibilityCode}
+            onChange={(code) => draft.setMetadata({ fileCredibilityCode: code })}
+            disabled={!isHeldByMe || lockedByOther}
+          />
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-black dark:text-zinc-50">
@@ -656,12 +691,55 @@ export default function FileSidebar({
             </span>
             <textarea
               value={credibility}
-              onChange={(event) => setCredibility(event.target.value)}
+              onChange={(event) =>
+                draft.setMetadata({
+                  fileCredibility: emptyToNull(event.target.value),
+                })
+              }
               disabled={!isHeldByMe || lockedByOther}
               rows={3}
               className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
             />
           </label>
+
+          {/* Save stages the working draft; Submit publishes it to the main
+              tables and clears the draft. Both require holding the check-out
+              (issue #78). Submit also respects submitLocked, the extensible
+              flag reserved for the future "task in progress" feature, and is
+              blocked while an Admiralty rating lacks its description (#80). */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!isHeldByMe || lockedByOther || draft.saving}
+              className="flex h-9 flex-1 items-center justify-center rounded-md border border-black/[.08] text-sm font-medium text-zinc-700 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+            >
+              {draft.saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={
+                !isHeldByMe ||
+                lockedByOther ||
+                draft.submitting ||
+                submitLocked ||
+                draft.submitBlockReason != null
+              }
+              title={draft.submitBlockReason ?? undefined}
+              className="flex h-9 flex-1 items-center justify-center rounded-md bg-black text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {draft.submitting ? "Submitting…" : "Submit"}
+            </button>
+          </div>
+
+          {/* Explain why Submit is disabled when an Admiralty rating is missing
+              its description; only shown to the check-out holder (#80). */}
+          {isHeldByMe && !lockedByOther && draft.submitBlockReason && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              {draft.submitBlockReason}
+            </p>
+          )}
 
           <button
             type="button"
@@ -673,11 +751,21 @@ export default function FileSidebar({
           </button>
         </div>
 
-        {saving && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Saving…</p>
+        {draft.hasDraft && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            Unsaved draft
+          </p>
         )}
-        {error && (
-          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        {draft.status === "saved" && (
+          <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>
+        )}
+        {draft.status === "submitted" && (
+          <p className="text-xs text-green-600 dark:text-green-400">
+            Submitted.
+          </p>
+        )}
+        {draft.error && (
+          <p className="text-xs text-red-600 dark:text-red-400">{draft.error}</p>
         )}
 
         <div className="mt-2 flex flex-1 flex-col gap-2 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
@@ -776,6 +864,20 @@ export default function FileSidebar({
         currentFolderId={currentFolderId ?? null}
         onMove={handleMove}
         onClose={() => setMoveModalOpen(false)}
+      />
+    )}
+
+    {conflictModalOpen && (
+      <DraftConflictModal
+        onUseDraft={() => {
+          draft.applyDraft();
+          setConflictModalOpen(false);
+        }}
+        onDiscardDraft={async () => {
+          await draft.discardDraft();
+          setConflictModalOpen(false);
+        }}
+        onClose={() => setConflictModalOpen(false)}
       />
     )}
     </>

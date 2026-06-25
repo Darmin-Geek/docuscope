@@ -50,6 +50,20 @@
       "when": 1782234625428,
       "tag": "0006_shocking_hardball",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782242588513,
+      "tag": "0007_clean_dagger",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782246032239,
+      "tag": "0008_nebulous_nehzno",
+      "breakpoints": true
     }
   ]
 }

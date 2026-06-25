@@ -38,7 +38,10 @@ export function useFileLock(
     let active = true;
     getFile(projectId, fileId)
       .then((f) => {
-        if (active) {
+        // If the user acquired the lock locally while this initial read was in
+        // flight, the response is stale — don't let it clobber the fresh
+        // acquire (which would strand release(), leaving holding.current false).
+        if (active && !holding.current) {
           // If the server already has us as the lock holder, keep holding.current
           // in sync so release() can fire the check-in API call correctly.
           holding.current = f.checkedOutBy === userId;

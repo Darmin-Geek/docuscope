@@ -24,6 +24,8 @@ export async function PATCH(
       overallBias: string | null;
       informationReliability: string | null;
       informationCredibility: string | null;
+      informationReliabilityCode: string | null;
+      informationCredibilityCode: string | null;
     };
     await updateInformation(id, fileId, infoId, fields);
     return NextResponse.json({ ok: true });
