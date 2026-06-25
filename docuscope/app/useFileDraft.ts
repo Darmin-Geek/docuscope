@@ -11,6 +11,7 @@ import {
   type FileDoc,
   type FileDraftSnapshot,
 } from "@/lib/projects";
+import { validateDraftForSubmit } from "@/lib/draftValidation";
 
 // One working snapshot per open file, shared by FileSidebar (metadata),
 // InformationSidebar (information rows) and PdfViewerModal (selections) so that
@@ -52,6 +53,10 @@ export type FileDraft = {
   ) => void;
   removeSelection: (informationId: string, selectionId: string) => void;
 
+  // Why Submit is currently blocked (an Admiralty code set without its matching
+  // description, issue #80), or null when the snapshot may be submitted.
+  submitBlockReason: string | null;
+
   save: () => Promise<void>;
   submit: () => Promise<void>;
   applyDraft: () => void;
@@ -66,6 +71,8 @@ const META_FIELDS = [
   "source",
   "fileReliability",
   "fileCredibility",
+  "fileReliabilityCode",
+  "fileCredibilityCode",
 ] as const;
 
 function metadataFromFile(file: FileDoc): FileDraftSnapshot["metadata"] {
@@ -76,6 +83,8 @@ function metadataFromFile(file: FileDoc): FileDraftSnapshot["metadata"] {
     source: file.source,
     fileReliability: file.fileReliability,
     fileCredibility: file.fileCredibility,
+    fileReliabilityCode: file.fileReliabilityCode,
+    fileCredibilityCode: file.fileCredibilityCode,
   };
 }
 
@@ -105,6 +114,8 @@ function emptySnapshot(): FileDraftSnapshot {
       source: null,
       fileReliability: null,
       fileCredibility: null,
+      fileReliabilityCode: null,
+      fileCredibilityCode: null,
     },
     information: [],
   };
@@ -146,6 +157,8 @@ export function useFileDraft(
             overallBias: info.overallBias,
             informationReliability: info.informationReliability,
             informationCredibility: info.informationCredibility,
+            informationReliabilityCode: info.informationReliabilityCode,
+            informationCredibilityCode: info.informationCredibilityCode,
             selections: selections.map((s) => ({
               id: s.id,
               pageIndex: s.pageIndex,
@@ -349,6 +362,10 @@ export function useFileDraft(
       storedDraft,
     );
 
+  // Recomputed from the live working snapshot so the Submit button reflects the
+  // Admiralty-code rule as the user types (issue #80).
+  const submitBlockReason = validateDraftForSubmit(snapshot);
+
   return {
     snapshot,
     dirty,
@@ -359,6 +376,7 @@ export function useFileDraft(
     submitting,
     error,
     status,
+    submitBlockReason,
     setMetadata,
     upsertInformation,
     removeInformation,

@@ -38,6 +38,10 @@ export type FileDoc = {
   source: string | null;
   fileReliability: string | null;
   fileCredibility: string | null;
+  // Admiralty-code ratings (issue #80). Reliability is an Alpha code A-F,
+  // credibility a numeric code 1-6; both null until the user picks one.
+  fileReliabilityCode: string | null;
+  fileCredibilityCode: string | null;
   checkedOutBy: string | null;
   labels: string[];
   folderId: string | null;
@@ -50,6 +54,9 @@ export type Information = {
   overallBias: string | null;
   informationReliability: string | null;
   informationCredibility: string | null;
+  // Admiralty-code ratings (issue #80), mirroring the file-level fields.
+  informationReliabilityCode: string | null;
+  informationCredibilityCode: string | null;
   // Ids of the 'information'-kind labels assigned to this piece of information.
   labels: string[];
 };
@@ -96,6 +103,8 @@ export type FileDraftSnapshot = {
     source: string | null;
     fileReliability: string | null;
     fileCredibility: string | null;
+    fileReliabilityCode: string | null; // Admiralty Alpha code A-F (issue #80)
+    fileCredibilityCode: string | null; // Admiralty numeric code 1-6 (issue #80)
   };
   information: Array<{
     id: string;
@@ -104,6 +113,8 @@ export type FileDraftSnapshot = {
     overallBias: string | null;
     informationReliability: string | null;
     informationCredibility: string | null;
+    informationReliabilityCode: string | null;
+    informationCredibilityCode: string | null;
     selections: Array<{
       id: string;
       pageIndex: number;
@@ -268,6 +279,8 @@ export async function updateFileMetadata(
     source: string | null;
     fileReliability: string | null;
     fileCredibility: string | null;
+    fileReliabilityCode: string | null;
+    fileCredibilityCode: string | null;
   },
 ): Promise<void> {
   await api(`/api/projects/${projectId}/files/${fileId}`, {
