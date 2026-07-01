@@ -625,26 +625,9 @@ test.describe("Information view", () => {
     await fileSidebar.getByRole("button", { name: "Submit" }).click();
     await expect(fileSidebar.getByText("Submitted.")).toBeVisible();
 
-    // Closing unmounts both sidebars and releases the checkout.
-    await fileSidebar.getByRole("button", { name: "Close" }).click();
-
-    // Reopen the file. The InformationSidebar re-fetches from the server, so it
-    // now knows the entry is persisted and the + Label button becomes available.
-    await page.getByRole("cell", { name: "globe.svg" }).click();
-    fileSidebar = page.locator("aside").last();
-    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
-    await fileSidebar.getByRole("button", { name: "Check Out" }).click();
-    await expect(fileSidebar.getByRole("button", { name: "Check In" })).toBeVisible();
-    await fileSidebar.getByRole("button", { name: "Open information view" }).click();
-
-    infoSidebar = page.locator("aside").filter({
-      has: page.getByRole("heading", { name: "Information" }),
-    });
-
-    // Select the persisted entry to open its editor.
-    await infoSidebar
-      .getByRole("button", { name: "Claim under review", exact: true })
-      .click();
+    // The + Label button should become available immediately, without closing
+    // and reopening the information view.
+    await expect(infoSidebar.getByRole("button", { name: "+ Label" })).toBeEnabled();
 
     // Assign the default "Fact" information label from the picker.
     await infoSidebar.getByRole("button", { name: "+ Label" }).click();

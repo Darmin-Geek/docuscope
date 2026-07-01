@@ -246,6 +246,17 @@ export default function InformationSidebar({
     }
   }
 
+  // Submit publishes the whole snapshot's information rows to the database
+  // (Save only stages a draft), so as soon as a submit succeeds every current
+  // entry is persisted — unlock their label pickers immediately rather than
+  // waiting for a re-fetch on the next mount.
+  useEffect(() => {
+    if (draft.status === "submitted") {
+      setPersistedIds(new Set(allItems.map((item) => item.id)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.status]);
+
   // True when the selected entry was created client-side and not yet saved to
   // the database. The label API requires the row to exist, so labels are blocked
   // until the user saves/submits.
