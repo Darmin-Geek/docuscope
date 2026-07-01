@@ -568,27 +568,66 @@ test.describe("Information view", () => {
     await expect(infoSidebar.getByText("No information yet.")).toBeVisible();
   });
 
-  test("an information label can be assigned to a piece of information", async ({
+  test("the + Label button is disabled for an unsaved information entry, with a tooltip explaining why", async ({
     page,
   }) => {
-    await signUpAndOpenProject(page, `info-label-${Date.now()}@test.com`);
+    await signUpAndOpenProject(page, `info-label-unsaved-${Date.now()}@test.com`);
     await uploadFile(page, SVG.globe);
 
-    // Open the file sidebar, then the information view.
+    // Check out the file, then open the information sidebar.
     await page.getByRole("cell", { name: "globe.svg" }).click();
     const fileSidebar = page.locator("aside").last();
     await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+    await fileSidebar.getByRole("button", { name: "Check Out" }).click();
+    await expect(fileSidebar.getByRole("button", { name: "Check In" })).toBeVisible();
     await fileSidebar.getByRole("button", { name: "Open information view" }).click();
-    await expect(page.getByRole("heading", { name: "Information" })).toBeVisible();
 
     const infoSidebar = page.locator("aside").filter({
       has: page.getByRole("heading", { name: "Information" }),
     });
 
-    // Create a new entry and give it a title.
+    // Create a new entry — it exists in the client draft only until Submit.
     await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
     await expect(infoSidebar.locator("input[placeholder='Untitled']")).toBeVisible();
+
+    // The + Label button must be disabled and carry a tooltip that explains why.
+    const labelButton = infoSidebar.getByRole("button", { name: "+ Label" });
+    await expect(labelButton).toBeDisabled();
+    await expect(labelButton).toHaveAttribute(
+      "title",
+      "Save this entry before adding labels",
+    );
+  });
+
+  test("an information label can be assigned after the entry is submitted", async ({
+    page,
+  }) => {
+    await signUpAndOpenProject(page, `info-label-saved-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    // Check out and open the information sidebar.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    let fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+    await fileSidebar.getByRole("button", { name: "Check Out" }).click();
+    await expect(fileSidebar.getByRole("button", { name: "Check In" })).toBeVisible();
+    await fileSidebar.getByRole("button", { name: "Open information view" }).click();
+
+    let infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    // Create a new entry and give it a title.
+    await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
     await infoSidebar.locator("input[placeholder='Untitled']").fill("Claim under review");
+
+    // Submit persists the entry to the database and clears the draft.
+    await fileSidebar.getByRole("button", { name: "Submit" }).click();
+    await expect(fileSidebar.getByText("Submitted.")).toBeVisible();
+
+    // The + Label button should become available immediately, without closing
+    // and reopening the information view.
+    await expect(infoSidebar.getByRole("button", { name: "+ Label" })).toBeEnabled();
 
     // Assign the default "Fact" information label from the picker.
     await infoSidebar.getByRole("button", { name: "+ Label" }).click();
@@ -596,7 +635,7 @@ test.describe("Information view", () => {
 
     // The applied label shows a removable pill.
     await expect(
-      infoSidebar.getByRole("button", { name: "Remove Fact" })
+      infoSidebar.getByRole("button", { name: "Remove Fact" }),
     ).toBeVisible();
   });
 });

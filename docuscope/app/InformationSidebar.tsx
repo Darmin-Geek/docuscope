@@ -120,6 +120,9 @@ export default function InformationSidebar({
   // Label ids per information id, kept separate from the draft because labels
   // are persisted immediately via the label API (not through save/submit).
   const [itemLabels, setItemLabels] = useState<Map<string, string[]>>(new Map());
+  // IDs that exist in the database. New entries created via startNew() are
+  // client-side only until Save/Submit, so the label API will 404 for them.
+  const [persistedIds, setPersistedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let active = true;
@@ -127,6 +130,7 @@ export default function InformationSidebar({
       .then((rows) => {
         if (!active) return;
         setItemLabels(new Map(rows.map((r) => [r.id, r.labels])));
+        setPersistedIds(new Set(rows.map((r) => r.id)));
       })
       .catch(() => {});
     return () => {
@@ -241,6 +245,22 @@ export default function InformationSidebar({
       );
     }
   }
+
+  // Submit publishes the whole snapshot's information rows to the database
+  // (Save only stages a draft), so as soon as a submit succeeds every current
+  // entry is persisted — unlock their label pickers immediately rather than
+  // waiting for a re-fetch on the next mount.
+  useEffect(() => {
+    if (draft.status === "submitted") {
+      setPersistedIds(new Set(allItems.map((item) => item.id)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.status]);
+
+  // True when the selected entry was created client-side and not yet saved to
+  // the database. The label API requires the row to exist, so labels are blocked
+  // until the user saves/submits.
+  const isUnsaved = selectedId !== null && !persistedIds.has(selectedId);
 
   // Resolve the selected entry's label ids against the project's information
   // labels, preserving the project's order; the rest are offered in the picker.
@@ -397,7 +417,8 @@ export default function InformationSidebar({
                     <button
                       type="button"
                       onClick={() => setPickingLabel((open) => !open)}
-                      disabled={!isHeldByMe || lockedByOther}
+                      disabled={!isHeldByMe || lockedByOther || isUnsaved}
+                      title={isUnsaved ? "Save this entry before adding labels" : undefined}
                       className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
                     >
                       + Label
