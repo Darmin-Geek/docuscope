@@ -7,6 +7,7 @@ import {
   getFolderFileIds,
 } from '@/lib/projects.server';
 import { apiError } from '@/lib/apiError';
+import { parseSearchFields } from '@/lib/searchScope';
 
 export async function GET(
   request: NextRequest,
@@ -18,7 +19,8 @@ export async function GET(
     await requireContributor(id, email);
     const folderId = request.nextUrl.searchParams.get('folderId');
     const search = request.nextUrl.searchParams.get('q') ?? '';
-    const data = await getFiles(id, folderId ?? null, search);
+    const fields = parseSearchFields(request.nextUrl.searchParams.get('fields'));
+    const data = await getFiles(id, folderId ?? null, search, fields);
     return NextResponse.json(data);
   } catch (err) {
     return apiError(err);

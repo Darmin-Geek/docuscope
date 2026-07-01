@@ -9,6 +9,11 @@ import {
   type Label,
   type Project,
 } from "@/lib/projects";
+import {
+  ALL_SEARCH_FIELDS,
+  isSearchField,
+  type SearchField,
+} from "@/lib/searchScope";
 import FolderView from "./FolderView";
 import FilesTable from "./FilesTable";
 import FileSidebar from "./FileSidebar";
@@ -21,6 +26,39 @@ import { useFileDraft } from "./useFileDraft";
 // Whether a file can be opened in the embedded PDF viewer (issue #64 is PDF-only).
 function isPdf(filename: string): boolean {
   return filename.toLowerCase().endsWith(".pdf");
+}
+
+// The user's chosen search scope is remembered per browser, mirroring the
+// docuscope:selectedProjectId convention. A missing/corrupt value, or one that
+// resolves to no known fields, falls back to "search everything".
+const SEARCH_SCOPE_KEY = "docuscope:searchScope";
+
+function loadSearchScope(): Set<SearchField> {
+  if (typeof window === "undefined") return new Set(ALL_SEARCH_FIELDS);
+  try {
+    const raw = window.localStorage.getItem(SEARCH_SCOPE_KEY);
+    if (!raw) return new Set(ALL_SEARCH_FIELDS);
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set(ALL_SEARCH_FIELDS);
+    const fields = parsed.filter(
+      (v): v is SearchField => typeof v === "string" && isSearchField(v),
+    );
+    return fields.length > 0 ? new Set(fields) : new Set(ALL_SEARCH_FIELDS);
+  } catch {
+    return new Set(ALL_SEARCH_FIELDS);
+  }
+}
+
+function saveSearchScope(scope: Set<SearchField>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      SEARCH_SCOPE_KEY,
+      JSON.stringify([...scope]),
+    );
+  } catch {
+    // Persisting scope is best-effort; ignore quota/serialisation failures.
+  }
 }
 
 type ProjectViewProps = {
@@ -77,6 +115,21 @@ export default function ProjectView({
   // Search state: the raw input value and a debounced copy used for API calls.
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Which fields the search covers (issue #27). Restored from localStorage on
+  // mount; a full set means "search everything" (the default).
+  const [searchScope, setSearchScope] = useState<Set<SearchField>>(loadSearchScope);
+
+  // Persist the scope whenever it changes so it survives a reload.
+  useEffect(() => {
+    saveSearchScope(searchScope);
+  }, [searchScope]);
+
+  // The field list passed to the API. Undefined when the scope covers every
+  // field, so getFiles omits the param and the server searches everything.
+  const searchFields = useMemo<SearchField[] | undefined>(() => {
+    if (searchScope.size >= ALL_SEARCH_FIELDS.length) return undefined;
+    return ALL_SEARCH_FIELDS.filter((f) => searchScope.has(f));
+  }, [searchScope]);
 
   // Load the project's labels once per project.
   useEffect(() => {
@@ -117,7 +170,7 @@ export default function ProjectView({
   }
 
   const loadFiles = useCallback(() => {
-    return getFiles(project.id, selectedFolderId, debouncedSearch)
+    return getFiles(project.id, selectedFolderId, debouncedSearch, searchFields)
       .then((result) => {
         setFiles(result);
         setFilesError(null);
@@ -127,14 +180,14 @@ export default function ProjectView({
           err instanceof Error ? err.message : "Failed to load files.",
         );
       });
-  }, [project.id, selectedFolderId, debouncedSearch]);
+  }, [project.id, selectedFolderId, debouncedSearch, searchFields]);
 
   // Reload whenever the project, selected folder, or debounced search changes.
   // The active guard discards a stale response that resolves after the deps
   // have moved on.
   useEffect(() => {
     let active = true;
-    getFiles(project.id, selectedFolderId, debouncedSearch)
+    getFiles(project.id, selectedFolderId, debouncedSearch, searchFields)
       .then((result) => {
         if (!active) return;
         setFiles(result);
@@ -152,7 +205,7 @@ export default function ProjectView({
     return () => {
       active = false;
     };
-  }, [project.id, selectedFolderId, debouncedSearch]);
+  }, [project.id, selectedFolderId, debouncedSearch, searchFields]);
 
   async function handleUpload(file: File) {
     await uploadFile(project.id, file, authorName, selectedFolderId);
@@ -264,6 +317,8 @@ export default function ProjectView({
             }}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
+            searchScope={searchScope}
+            onSearchScopeChange={setSearchScope}
           />
         </main>
         {selectedFile && informationOpen && (

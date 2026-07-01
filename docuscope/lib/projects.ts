@@ -1,5 +1,6 @@
 import { api } from './apiClient';
 import { isPdf, extractPdfText } from './pdfText';
+import { ALL_SEARCH_FIELDS, type SearchField } from './searchScope';
 
 // All data access for projects goes through these functions so UI components
 // never call the API directly (mirrors the old Firebase design principle).
@@ -212,10 +213,22 @@ export async function getFiles(
   projectId: string,
   folderId: string | null = null,
   search: string = '',
+  fields?: SearchField[],
 ): Promise<FileDoc[]> {
   const params = new URLSearchParams();
   if (folderId) params.set('folderId', folderId);
   if (search.trim()) params.set('q', search.trim());
+  // The `fields` scope only affects a search, and only when it actually narrows
+  // things (a full scope is the server default, so we omit it to keep URLs and
+  // caching identical to the unscoped case).
+  if (
+    search.trim() &&
+    fields &&
+    fields.length > 0 &&
+    fields.length < ALL_SEARCH_FIELDS.length
+  ) {
+    params.set('fields', fields.join(','));
+  }
   const qs = params.size ? `?${params}` : '';
   return api<FileDoc[]>(`/api/projects/${projectId}/files${qs}`);
 }
