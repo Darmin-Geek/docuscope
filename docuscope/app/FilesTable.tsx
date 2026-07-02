@@ -1,7 +1,9 @@
 "use client";
 
 import { type FileDoc, type Label } from "@/lib/projects";
+import { type SearchField } from "@/lib/searchScope";
 import LabelPill from "./LabelPill";
+import SearchScopeMenu from "./SearchScopeMenu";
 
 type FilesTableProps = {
   files: FileDoc[];
@@ -14,6 +16,9 @@ type FilesTableProps = {
   onSelectFile: (file: FileDoc) => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  // Which fields the search covers (issue #27), and a setter for the scope menu.
+  searchScope: Set<SearchField>;
+  onSearchScopeChange: (next: Set<SearchField>) => void;
 };
 
 // `createdDate` is a unix timestamp (seconds) the user enters, or null when
@@ -32,19 +37,24 @@ export default function FilesTable({
   onSelectFile,
   searchQuery,
   onSearchChange,
+  searchScope,
+  onSearchScopeChange,
 }: FilesTableProps) {
   const labelsById = new Map(labels.map((label) => [label.id, label]));
 
   return (
     <div className="flex flex-col gap-4">
-      <input
-        type="search"
-        value={searchQuery}
-        onChange={(e) => onSearchChange(e.target.value)}
-        placeholder="Search files…"
-        aria-label="Search files"
-        className="w-full rounded-full border border-black/[.08] bg-transparent px-4 py-2 text-sm text-black placeholder-zinc-400 outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:placeholder-zinc-500 dark:focus:border-white/30"
-      />
+      <div className="flex items-stretch gap-2">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search files…"
+          aria-label="Search files"
+          className="w-full rounded-full border border-black/[.08] bg-transparent px-4 py-2 text-sm text-black placeholder-zinc-400 outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:placeholder-zinc-500 dark:focus:border-white/30"
+        />
+        <SearchScopeMenu scope={searchScope} onChange={onSearchScopeChange} />
+      </div>
 
       {loading ? (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading files…</p>
