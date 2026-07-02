@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plan — Field Version History for File Details &amp; Information</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #18181b; --muted: #52525b; --line: rgba(0,0,0,.1);
+    --card: #fafafa; --accent: #2563eb; --code-bg: #f4f4f5; --ok: #16a34a;
+    --warn: #b45309; --chip: #eef2ff; --chip-fg: #3730a3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0a0a; --fg: #fafafa; --muted: #a1a1aa; --line: rgba(255,255,255,.145);
+      --card: #131316; --accent: #60a5fa; --code-bg: #18181b; --ok: #4ade80;
+      --warn: #fbbf24; --chip: #1e1b4b; --chip-fg: #c7d2fe;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 28px; line-height: 1.25; margin: 0 0 4px; }
+  h2 { font-size: 20px; margin: 40px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 24px 0 8px; }
+  p, li { color: var(--fg); }
+  .sub { color: var(--muted); margin: 0 0 8px; }
+  code, pre { font-family: "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace; }
+  code { background: var(--code-bg); padding: 1.5px 5px; border-radius: 4px; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto;
+        border: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px 18px; margin: 12px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .chip { display: inline-block; background: var(--chip); color: var(--chip-fg);
+          border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; margin: 0 6px 6px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .muted { color: var(--muted); }
+  .warn { color: var(--warn); }
+  .ok { color: var(--ok); }
+  .path { color: var(--accent); font-weight: 600; }
+  .decision { display: grid; grid-template-columns: 160px 1fr; gap: 4px 16px; margin: 6px 0; }
+  .decision dt { color: var(--muted); font-weight: 600; }
+  .decision dd { margin: 0; }
+  .mock { border: 1px dashed var(--line); border-radius: 8px; padding: 14px; background: var(--bg); }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .lbl { width: 90px; font-size: 12px; font-weight: 600; }
+  .box { flex: 1; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 12px; color: var(--muted); }
+  .clock { width: 20px; height: 20px; border: 1px solid var(--line); border-radius: 50%;
+           display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+  .pop { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-width: 320px; background: var(--card); }
+  .ver { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .ver:last-child { border-bottom: 0; }
+  .ver .val { font-size: 13px; }
+  .ver .meta { font-size: 11px; color: var(--muted); }
+  .tag { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>Field Version History</h1>
+  <p class="sub">Version history for every text/metadata field of <strong>File Details</strong> and <strong>Information</strong>, surfaced via a clock icon next to each field label. Each version shows the value and the display name of who made that edit.</p>
+
+  <div class="card">
+    <span class="tag">Confirmed decisions</span>
+    <dl class="decision">
+      <dt>Capture model</dt><dd>Per-field, on <strong>Submit</strong>. Compare old vs. new per field; write a version row only for fields that actually changed.</dd>
+      <dt>Field scope</dt><dd>Text/metadata fields only. Labels and PDF selections are out of scope.</dd>
+      <dt>Attribution</dt><dd>Display name, captured at Submit time and stored denormalized.</dd>
+      <dt>UI surface</dt><dd>A small clock icon beside each field label; click opens a compact popover, newest first.</dd>
+    </dl>
+  </div>
+
+  <h2>1. Why Submit is the capture point</h2>
+  <p>Field edits are staged in a per-user working draft and only become "official" when <code>submitDraft</code> writes them into the <code>files</code> / <code>information</code> tables in one transaction (<span class="path">lib/projects.server.ts:908</span>). That handler already knows the acting user (<code>uid</code>, <code>email</code>) and is the single chokepoint through which published changes flow — Save only touches the private draft, so it is intentionally <em>not</em> versioned. Capturing there means:</p>
+  <ul>
+    <li>One consistent attribution per published change.</li>
+    <li>No noise from unpublished drafts or per-user intermediate states.</li>
+    <li>Diffing old-vs-new is trivial: we read current rows inside the same transaction before overwriting them.</li>
+  </ul>
+
+  <h2>2. Fields in scope</h2>
+  <table>
+    <tr><th>Entity</th><th>Fields versioned</th></tr>
+    <tr>
+      <td><strong>File</strong><br><span class="muted">files</span></td>
+      <td><code>author</code>, <code>createdDate</code>, <code>source</code>, <code>overallBias</code>, <code>fileReliability</code>, <code>fileCredibility</code>, <code>fileReliabilityCode</code>, <code>fileCredibilityCode</code></td>
+    </tr>
+    <tr>
+      <td><strong>Information</strong><br><span class="muted">information</span></td>
+      <td><code>informationTitle</code>, <code>informationText</code>, <code>overallBias</code>, <code>informationReliability</code>, <code>informationCredibility</code>, <code>informationReliabilityCode</code>, <code>informationCredibilityCode</code></td>
+    </tr>
+  </table>
+  <p class="muted">All are stored as text in history. <code>createdDate</code> (unix seconds) is stored as its numeric string and formatted as a date in the popover; Admiralty codes are stored verbatim. Excluded: label assignments (saved immediately outside Submit) and PDF selections.</p>
+
+  <h2>3. Data model</h2>
+  <p>Two tables — one per entity — so each gets a real foreign key with <code>onDelete: 'cascade'</code>. This matters because <code>submitDraft</code> deletes information rows that fall out of the snapshot; their history should disappear with them for free rather than leaking orphans. (A single polymorphic <code>field_versions</code> table was considered but rejected: it can't FK to two parents, forcing manual cleanup.)</p>
+  <p>Add to <span class="path">lib/drizzle/schema.ts</span>:</p>
+  <pre>export const fileFieldVersions = pgTable(
+  'file_field_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() =&gt; files.id, { onDelete: 'cascade' }),
+    field: text('field').notNull(),          // 'author' | 'source' | ...
+    value: text('value'),                    // new value; null = field cleared
+    editorUid: text('editor_uid').notNull(), // Cognito sub
+    editorName: text('editor_name').notNull(), // denormalized snapshot at edit time
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(), // epoch ms
+  },
+  (t) =&gt; [
+    index('file_field_versions_lookup_idx').on(t.fileId, t.field, t.createdAt),
+  ],
+);
+
+export const informationFieldVersions = pgTable(
+  'information_field_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    informationId: uuid('information_id')
+      .notNull()
+      .references(() =&gt; information.id, { onDelete: 'cascade' }),
+    field: text('field').notNull(),
+    value: text('value'),
+    editorUid: text('editor_uid').notNull(),
+    editorName: text('editor_name').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) =&gt; [
+    index('information_field_versions_lookup_idx')
+      .on(t.informationId, t.field, t.createdAt),
+  ],
+);</pre>
+  <p class="muted">Migration: <code>npm run db:generate</code> then commit the SQL under <code>drizzle/migrations/</code>; <code>npm run db:push</code> to apply to local Docker Postgres for tests.</p>
+
+  <h2>4. Server: recording versions</h2>
+  <h3>4.1 Resolve the editor's name once</h3>
+  <p><code>submitDraft</code> currently receives <code>uid</code>. Add the editor's display name so it can be stamped on rows. The Submit route (<span class="path">app/api/projects/[id]/files/[fileId]/submit/route.ts</span>) already has <code>uid</code>; resolve the name via <code>getUserProfile(uid)</code> (Cognito) and pass it through. Fall back to the email local-part, then <code>"Unknown"</code>, if the profile has no name.</p>
+
+  <h3>4.2 Diff-and-insert inside the transaction</h3>
+  <p>Extend <code>submitDraft</code> (<span class="path">lib/projects.server.ts:908</span>). Before each overwrite, read the current values, compare per field, and insert a version row for every field whose value changed. Do it in the same <code>tx</code> so history and the published change commit atomically.</p>
+  <pre>// (1) file metadata — read current BEFORE updating
+const [current] = await tx.select().from(filesTable)
+  .where(and(eq(filesTable.id, fileId), eq(filesTable.projectId, projectId)));
+
+const now = Date.now();
+const fileVersionRows = FILE_VERSIONED_FIELDS
+  .filter((f) =&gt; !valuesEqual(current[f], snapshot.metadata[f]))
+  .map((f) =&gt; ({
+    fileId, field: f, value: toText(snapshot.metadata[f]),
+    editorUid: uid, editorName, createdAt: now,
+  }));
+if (fileVersionRows.length) await tx.insert(fileFieldVersions).values(fileVersionRows);
+
+await tx.update(filesTable).set(snapshot.metadata).where(/* ...unchanged... */);</pre>
+  <p>Do the same per information row in the existing upsert loop: for an <em>existing</em> row, diff against the fetched current values; for a <em>brand-new</em> row, record a baseline version for each non-empty field (see 4.3). <code>valuesEqual</code> treats <code>null</code> and unchanged text as equal so no-op submits write nothing; <code>toText</code> stringifies numbers (e.g. <code>createdDate</code>).</p>
+
+  <h3>4.3 Baseline / first version</h3>
+  <ul>
+    <li><strong>New files</strong> — in <code>createFileRecord</code> (<span class="path">lib/projects.server.ts:438</span>), insert an initial version for each field that has a value at creation, attributed to the creating user. Files created with blank metadata simply have no baseline, which is fine.</li>
+    <li><strong>New information rows</strong> — on first insert during Submit, write a baseline version per non-empty field. This guarantees the very first value is in history, not just subsequent edits.</li>
+  </ul>
+
+  <h2>5. API</h2>
+  <p>One read endpoint per entity, returning <em>all</em> versions for that entity grouped by field. Fetching everything in a single call (rather than per-field) lets the client open any field's popover instantly with no extra round-trip.</p>
+  <table>
+    <tr><th>Method</th><th>Route</th><th>Returns</th></tr>
+    <tr><td>GET</td><td><code>/api/projects/[id]/files/[fileId]/history</code></td><td>File field versions</td></tr>
+    <tr><td>GET</td><td><code>/api/projects/[id]/files/[fileId]/information/[infoId]/history</code></td><td>Information field versions</td></tr>
+  </table>
+  <p>Shape (newest first within each field):</p>
+  <pre>type FieldVersion = { value: string | null; editorName: string; createdAt: number };
+type FieldHistory = Record&lt;string, FieldVersion[]&gt;;  // keyed by field name</pre>
+  <p>Auth mirrors existing file routes: <code>verifyAuth</code> then <code>requireContributor</code>. History is read-only and available to any contributor <em>regardless of check-out</em> — viewing the past never requires holding the lock. Add client wrappers <code>getFileHistory</code> / <code>getInformationHistory</code> and the <code>FieldVersion</code>/<code>FieldHistory</code> types in <span class="path">lib/projects.ts</span>; server implementations in <span class="path">lib/projects.server.ts</span>.</p>
+
+  <h2>6. Client UI</h2>
+  <h3>6.1 New pieces</h3>
+  <ul>
+    <li><span class="path">app/FieldHistoryButton.tsx</span> — a clock icon button rendered beside a field label. Props: the field key and a getter for that field's version list. Toggles a popover.</li>
+    <li><span class="path">app/FieldHistoryPopover.tsx</span> — lists versions newest-first: the value (blank rendered as <em class="muted">(empty)</em>, long text clamped with expand), the editor's display name, and a formatted timestamp. Closes on outside-click / <kbd>Esc</kbd>.</li>
+    <li><span class="path">app/useFieldHistory.ts</span> — hook that fetches the entity's history once, caches it, and exposes <code>versionsFor(field)</code>. Re-fetches after a successful Submit so freshly published edits appear.</li>
+  </ul>
+
+  <h3>6.2 Wiring into the sidebars</h3>
+  <p>Both sidebars render each field label as a plain <code>&lt;span&gt;</code> (e.g. <span class="path">FileSidebar.tsx:591</span> "Author", <span class="path">InformationSidebar.tsx:382</span> "Title"). Wrap each label + icon in a small flex row and drop in <code>&lt;FieldHistoryButton&gt;</code>. The icon is always enabled (read-only), independent of the check-out lock.</p>
+  <p><strong>Information caveat:</strong> a newly-added entry that hasn't been Submitted has no persisted id and no history yet — reuse the existing <code>persistedIds</code> gate (<span class="path">InformationSidebar.tsx:263</span>) to hide the clock icon for unsaved entries, matching how the label picker is already gated.</p>
+
+  <h3>6.3 Mockup</h3>
+  <div class="mock">
+    <div class="row">
+      <span class="lbl">Author <span class="clock" title="Version history">🕘</span></span>
+      <span class="box">Jane Analyst</span>
+    </div>
+    <div class="pop">
+      <div class="ver"><div class="val">Jane Analyst</div><div class="meta">M. Rivera · Jul 1, 2026, 2:14 PM</div></div>
+      <div class="ver"><div class="val">J. Analyst</div><div class="meta">A. Chen · Jun 28, 2026, 9:02 AM</div></div>
+      <div class="ver"><div class="val"><em>(empty)</em></div><div class="meta">A. Chen · Jun 27, 2026, 4:41 PM &nbsp;·&nbsp; created</div></div>
+    </div>
+  </div>
+  <p class="muted">Clock icon sits inline with the field label; clicking reveals the field's timeline, newest at top, each entry showing value + editor name + time.</p>
+
+  <h2>7. Edge cases</h2>
+  <ul>
+    <li><strong>No history</strong> — popover shows "No previous versions." (current value only, e.g. legacy data with no baseline).</li>
+    <li><strong>No-op Submit</strong> — a field resubmitted unchanged writes no row (<code>valuesEqual</code> dedupe).</li>
+    <li><strong>Cleared field</strong> — value stored as <code>null</code>, rendered as <em>(empty)</em>.</li>
+    <li><strong>Long text</strong> (source, information text) — clamp with a "show more" toggle.</li>
+    <li><strong>Unsaved information entry</strong> — icon hidden until persisted.</li>
+    <li><strong>Deleted information</strong> — its history cascade-deletes via the FK.</li>
+    <li><strong>Editor renamed later</strong> — old rows keep the name captured at edit time (denormalized), so history stays historically accurate.</li>
+    <li><strong>Editor with no Cognito name</strong> — fall back to email local-part, then "Unknown".</li>
+  </ul>
+
+  <h2>8. Testing</h2>
+  <p>Playwright suite under <code>tests/</code> against local Docker Postgres (<code>npm test</code>).</p>
+  <ul>
+    <li><strong>Server</strong>: Submit records a version only for changed fields; unchanged fields write nothing; attribution (uid + captured name) is correct; baseline written on file create and on first information insert; two sequential edits by different users produce two ordered rows.</li>
+    <li><strong>Cascade</strong>: deleting an information row (via Submit reconciliation) removes its version rows.</li>
+    <li><strong>UI</strong>: clock icon renders next to each in-scope field; popover lists entries newest-first with value + name + time; icon hidden for an unsaved information entry; popover works without holding the check-out.</li>
+  </ul>
+
+  <h2>9. Rollout &amp; work breakdown</h2>
+  <ol>
+    <li>Schema: add both tables + indexes; <code>db:generate</code>, commit migration, <code>db:push</code>.</li>
+    <li>Server capture: thread <code>editorName</code> into <code>submitDraft</code>; diff-and-insert; baselines in <code>createFileRecord</code> and first-insert path.</li>
+    <li>API: two GET history routes + client wrappers &amp; types.</li>
+    <li>Client: <code>useFieldHistory</code>, <code>FieldHistoryButton</code>, <code>FieldHistoryPopover</code>; wire into both sidebars.</li>
+    <li>Tests: server + UI.</li>
+    <li class="muted"><strong>Optional backfill</strong>: seed one baseline version per existing file/information from current values, attributed to "Unknown / imported", so pre-existing data isn't blank in the popover.</li>
+  </ol>
+
+  <h2>10. Open items for confirmation</h2>
+  <ul>
+    <li class="warn">Timestamp format in the popover — absolute local datetime (proposed) vs. relative ("2 days ago")?</li>
+    <li class="warn">Backfill of existing files/information — do it, or start history fresh from first edit after ship?</li>
+    <li class="muted">Whether to cap retained versions per field (unbounded is fine at expected scale; noting it).</li>
+  </ul>
+
+</main>
+</body>
+</html>

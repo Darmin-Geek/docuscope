@@ -4,6 +4,7 @@ import {
   requireContributor,
   requireCheckoutHolder,
   submitDraft,
+  resolveEditorName,
 } from '@/lib/projects.server';
 import { apiError } from '@/lib/apiError';
 import type { FileDraftSnapshot } from '@/lib/projects';
@@ -21,7 +22,8 @@ export async function POST(
     await requireContributor(id, email);
     await requireCheckoutHolder(id, fileId, uid);
     const snapshot = (await request.json()) as FileDraftSnapshot;
-    await submitDraft(id, fileId, uid, snapshot);
+    const editorName = await resolveEditorName(uid, email);
+    await submitDraft(id, fileId, uid, snapshot, editorName);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

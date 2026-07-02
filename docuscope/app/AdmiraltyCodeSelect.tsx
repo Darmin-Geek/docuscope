@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   RELIABILITY_OPTIONS,
   CREDIBILITY_OPTIONS,
@@ -18,6 +19,8 @@ type AdmiraltyCodeSelectProps = {
   value: string | null;
   onChange: (value: string | null) => void;
   disabled?: boolean;
+  // Optional control rendered beside the label (e.g. a version-history button).
+  labelAccessory?: ReactNode;
 };
 
 export default function AdmiraltyCodeSelect({
@@ -26,6 +29,7 @@ export default function AdmiraltyCodeSelect({
   value,
   onChange,
   disabled = false,
+  labelAccessory,
 }: AdmiraltyCodeSelectProps) {
   const options: AdmiraltyOption[] =
     kind === "reliability" ? RELIABILITY_OPTIONS : CREDIBILITY_OPTIONS;
@@ -33,8 +37,9 @@ export default function AdmiraltyCodeSelect({
 
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-black dark:text-zinc-50">
+      <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
         {label}
+        {labelAccessory}
       </span>
       <select
         value={value ?? ""}

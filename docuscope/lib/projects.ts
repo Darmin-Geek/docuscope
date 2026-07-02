@@ -476,6 +476,38 @@ export async function discardDraft(
   });
 }
 
+// ── field version history ───────────────────────────────────────────────────────
+
+// One recorded value of a field, newest-first within its field's timeline.
+// `value` is the value as text (null = the field was cleared / empty);
+// `editorName` is the display name captured when the edit was published.
+export type FieldVersion = {
+  value: string | null;
+  editorName: string;
+  createdAt: number; // epoch ms
+};
+
+// All versions for an entity, keyed by field name (e.g. 'author'), each list
+// ordered newest-first.
+export type FieldHistory = Record<string, FieldVersion[]>;
+
+export async function getFileHistory(
+  projectId: string,
+  fileId: string,
+): Promise<FieldHistory> {
+  return api<FieldHistory>(`/api/projects/${projectId}/files/${fileId}/history`);
+}
+
+export async function getInformationHistory(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+): Promise<FieldHistory> {
+  return api<FieldHistory>(
+    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/history`,
+  );
+}
+
 // ── labels ────────────────────────────────────────────────────────────────────
 
 export async function getLabels(projectId: string): Promise<Label[]> {

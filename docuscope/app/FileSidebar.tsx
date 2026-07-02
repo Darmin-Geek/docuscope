@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -15,10 +16,13 @@ import {
   moveFile,
   checkOcrStatus,
   ocrFile,
+  getFileHistory,
   type FileDoc,
   type Folder,
   type Label,
 } from "@/lib/projects";
+import { useFieldHistory } from "./useFieldHistory";
+import FieldHistoryButton from "./FieldHistoryButton";
 import {
   findFolderContainingFile,
 } from "@/lib/folderTree";
@@ -98,6 +102,15 @@ function emptyToNull(value: string): string | null {
   return value.length > 0 ? value : null;
 }
 
+// Version history stores createdDate as its unix-seconds string; render it as a
+// calendar date in the popover rather than the raw number.
+function formatDateValue(value: string | null): string {
+  if (!value) return "";
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return value;
+  return new Date(seconds * 1000).toLocaleDateString();
+}
+
 export default function FileSidebar({
   projectId,
   file,
@@ -133,6 +146,14 @@ export default function FileSidebar({
   // Single extensible predicate reserved for the future "disable submit until a
   // task is done" feature (issue #78). Default false; nothing feeds it yet.
   const submitLocked = false;
+
+  // Field version history for this file's metadata. Bumped after a successful
+  // Submit so the popovers show the edits that were just published.
+  const [historyReloadToken, setHistoryReloadToken] = useState(0);
+  const history = useFieldHistory(
+    useCallback(() => getFileHistory(projectId, file.id), [projectId, file.id]),
+    `${file.id}:${historyReloadToken}`,
+  );
 
   // Draft resolution while the file is checked out by us (issue #78 §4.2).
   // Whenever we hold the file and a stored draft exists, decide once what to do
@@ -427,6 +448,8 @@ export default function FileSidebar({
         fileCredibilityCode: draft.snapshot.metadata.fileCredibilityCode,
       });
       onSubmitted();
+      // Published edits just landed — refresh the field history popovers.
+      setHistoryReloadToken((n) => n + 1);
     }
   }
 
@@ -588,8 +611,12 @@ export default function FileSidebar({
             field is disabled and greyed out otherwise. */}
         <div className="contents">
           <label className="flex items-center gap-2">
-            <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
+            <span className="flex w-24 shrink-0 items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Author
+              <FieldHistoryButton
+                fieldLabel="Author"
+                versions={history.versionsFor("author")}
+              />
             </span>
             <input
               type="text"
@@ -605,8 +632,13 @@ export default function FileSidebar({
           </label>
 
           <label className="flex items-center gap-2">
-            <span className="w-24 shrink-0 text-xs font-medium text-black dark:text-zinc-50">
+            <span className="flex w-24 shrink-0 items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Date Created
+              <FieldHistoryButton
+                fieldLabel="Date Created"
+                versions={history.versionsFor("createdDate")}
+                formatValue={formatDateValue}
+              />
             </span>
             <input
               type="date"
@@ -623,8 +655,12 @@ export default function FileSidebar({
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-black dark:text-zinc-50">
+            <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Source
+              <FieldHistoryButton
+                fieldLabel="Source"
+                versions={history.versionsFor("source")}
+              />
             </span>
             <textarea
               value={source}
@@ -638,8 +674,12 @@ export default function FileSidebar({
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-black dark:text-zinc-50">
+            <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Overall Bias
+              <FieldHistoryButton
+                fieldLabel="Overall Bias"
+                versions={history.versionsFor("overallBias")}
+              />
             </span>
             <textarea
               value={overallBias}
@@ -658,11 +698,21 @@ export default function FileSidebar({
             value={reliabilityCode}
             onChange={(code) => draft.setMetadata({ fileReliabilityCode: code })}
             disabled={!isHeldByMe || lockedByOther}
+            labelAccessory={
+              <FieldHistoryButton
+                fieldLabel="Reliability Rating"
+                versions={history.versionsFor("fileReliabilityCode")}
+              />
+            }
           />
 
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-black dark:text-zinc-50">
+            <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Overall Reliability
+              <FieldHistoryButton
+                fieldLabel="Overall Reliability"
+                versions={history.versionsFor("fileReliability")}
+              />
             </span>
             <textarea
               value={reliability}
@@ -683,11 +733,21 @@ export default function FileSidebar({
             value={credibilityCode}
             onChange={(code) => draft.setMetadata({ fileCredibilityCode: code })}
             disabled={!isHeldByMe || lockedByOther}
+            labelAccessory={
+              <FieldHistoryButton
+                fieldLabel="Credibility Rating"
+                versions={history.versionsFor("fileCredibilityCode")}
+              />
+            }
           />
 
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-black dark:text-zinc-50">
+            <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Overall Credibility
+              <FieldHistoryButton
+                fieldLabel="Overall Credibility"
+                versions={history.versionsFor("fileCredibility")}
+              />
             </span>
             <textarea
               value={credibility}

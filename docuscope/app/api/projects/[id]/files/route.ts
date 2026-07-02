@@ -5,6 +5,7 @@ import {
   getFiles,
   createFileRecord,
   getFolderFileIds,
+  resolveEditorName,
 } from '@/lib/projects.server';
 import { apiError } from '@/lib/apiError';
 
@@ -30,7 +31,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { email } = await verifyAuth(request);
+    const { uid, email } = await verifyAuth(request);
     const { id } = await params;
     await requireContributor(id, email);
     const body = await request.json() as {
@@ -40,6 +41,7 @@ export async function POST(
       folderId: string | null;
       text?: string | null;
     };
+    const editorName = await resolveEditorName(uid, email);
     const file = await createFileRecord(
       id,
       body.filename,
@@ -47,6 +49,7 @@ export async function POST(
       body.author ?? null,
       body.folderId ?? null,
       body.text ?? null,
+      { uid, name: editorName },
     );
     return NextResponse.json(file);
   } catch (err) {
