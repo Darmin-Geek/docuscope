@@ -1,5 +1,5 @@
 import { db } from './drizzle/db';
-import { eq, and, or, inArray, isNull, lt, desc, getTableColumns, sql } from 'drizzle-orm';
+import { eq, and, or, inArray, isNull, lt, desc, getTableColumns, sql, type SQL } from 'drizzle-orm';
 import {
   projects,
   projectContributors,
@@ -17,6 +17,7 @@ import {
   type FileDraftSnapshot,
 } from './drizzle/schema';
 import { getUidForEmail } from './users.server';
+import type { SearchField } from './searchScope';
 import { validateDraftForSubmit } from './draftValidation';
 import type {
   Project,
@@ -339,42 +340,75 @@ export async function moveFile(
 
 // ── files ────────────────────────────────────────────────────────────────────
 
-function ftsCondition(q: string) {
-  // A file matches if any of its metadata tsvectors match, if any of its text
-  // chunks match, or if any of its information entries match. The chunk and
-  // information matches use EXISTS subqueries so a file is surfaced once
-  // regardless of how many rows matched.
-  return or(
-    sql`(
-      ${filesTable.authorTsv} ||
-      ${filesTable.overallBiasTsv} ||
-      ${filesTable.sourceTsv} ||
-      ${filesTable.fileReliabilityTsv} ||
-      ${filesTable.fileCredibilityTsv}
-    ) @@ plainto_tsquery('english', ${q})`,
-    sql`EXISTS (
+// Maps each metadata / information field key to its generated tsvector column.
+// `contents` is handled separately since it lives in the file_chunks table.
+const META_TSV: Record<string, ReturnType<typeof sql>> = {
+  author: sql`${filesTable.authorTsv}`,
+  source: sql`${filesTable.sourceTsv}`,
+  fileBias: sql`${filesTable.overallBiasTsv}`,
+  fileReliability: sql`${filesTable.fileReliabilityTsv}`,
+  fileCredibility: sql`${filesTable.fileCredibilityTsv}`,
+};
+const INFO_TSV: Record<string, ReturnType<typeof sql>> = {
+  infoTitle: sql`${informationTable.titleTsv}`,
+  infoText: sql`${informationTable.textTsv}`,
+  infoBias: sql`${informationTable.overallBiasTsv}`,
+  infoReliability: sql`${informationTable.reliabilityTsv}`,
+  infoCredibility: sql`${informationTable.credibilityTsv}`,
+};
+
+const META_KEYS = ['author', 'source', 'fileBias', 'fileReliability', 'fileCredibility'] as const;
+const INFO_KEYS = ['infoTitle', 'infoText', 'infoBias', 'infoReliability', 'infoCredibility'] as const;
+
+// Builds the full-text WHERE clause. A file matches if any *enabled* metadata
+// tsvector matches, if the (enabled) text chunks match, or if any enabled
+// information tsvector matches. The chunk and information matches use EXISTS
+// subqueries so a file is surfaced once regardless of how many rows matched.
+//
+// `fields` restricts the search to a subset (issue #27). When it is undefined
+// or empty, every field is searched — the default, back-compatible behaviour.
+function ftsCondition(q: string, fields?: SearchField[]) {
+  const searchAll = !fields || fields.length === 0;
+  const enabled = new Set(fields ?? []);
+  const on = (f: SearchField) => searchAll || enabled.has(f);
+
+  const parts: SQL[] = [];
+
+  const metaCols = META_KEYS.filter(on).map((k) => META_TSV[k]);
+  if (metaCols.length > 0) {
+    parts.push(
+      sql`(${sql.join(metaCols, sql` || `)}) @@ plainto_tsquery('english', ${q})`,
+    );
+  }
+
+  if (on('contents')) {
+    parts.push(sql`EXISTS (
       SELECT 1 FROM ${fileChunks}
       WHERE ${fileChunks.fileId} = ${filesTable.id}
         AND ${fileChunks.contentTsv} @@ plainto_tsquery('english', ${q})
-    )`,
-    sql`EXISTS (
+    )`);
+  }
+
+  const infoCols = INFO_KEYS.filter(on).map((k) => INFO_TSV[k]);
+  if (infoCols.length > 0) {
+    parts.push(sql`EXISTS (
       SELECT 1 FROM ${informationTable}
       WHERE ${informationTable.fileId} = ${filesTable.id}
-        AND (
-          ${informationTable.titleTsv} ||
-          ${informationTable.textTsv} ||
-          ${informationTable.overallBiasTsv} ||
-          ${informationTable.reliabilityTsv} ||
-          ${informationTable.credibilityTsv}
-        ) @@ plainto_tsquery('english', ${q})
-    )`,
-  );
+        AND (${sql.join(infoCols, sql` || `)}) @@ plainto_tsquery('english', ${q})
+    )`);
+  }
+
+  // An explicit scope that enables no known field matches nothing rather than
+  // silently widening to everything. In practice the client never sends this.
+  if (parts.length === 0) return sql`false`;
+  return or(...parts);
 }
 
 export async function getFiles(
   projectId: string,
   folderId: string | null = null,
   search: string = '',
+  fields?: SearchField[],
 ): Promise<FileDoc[]> {
   const q = search.trim();
 
@@ -384,7 +418,7 @@ export async function getFiles(
       .select({ ...getTableColumns(filesTable), folderId: fileFolders.folderId })
       .from(filesTable)
       .leftJoin(fileFolders, eq(filesTable.id, fileFolders.fileId))
-      .where(and(eq(filesTable.projectId, projectId), ftsCondition(q)));
+      .where(and(eq(filesTable.projectId, projectId), ftsCondition(q, fields)));
 
     return attachLabels(rows.map((r) => ({ ...r, folderId: r.folderId ?? null })));
   }
