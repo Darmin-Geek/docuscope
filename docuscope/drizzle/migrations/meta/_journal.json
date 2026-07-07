@@ -64,6 +64,13 @@
       "when": 1782246032239,
       "tag": "0008_nebulous_nehzno",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782954792790,
+      "tag": "0009_complete_madrox",
+      "breakpoints": true
     }
   ]
 }

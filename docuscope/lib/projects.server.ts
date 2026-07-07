@@ -14,10 +14,13 @@ import {
   informationSelections as selectionsTable,
   ocrJobs,
   fileDrafts,
+  fileFieldVersions,
+  informationFieldVersions,
   type FileDraftSnapshot,
 } from './drizzle/schema';
 import { getUidForEmail } from './users.server';
 import type { SearchField } from './searchScope';
+import { getCognitoProfile } from './cognito';
 import { validateDraftForSubmit } from './draftValidation';
 import type {
   Project,
@@ -30,6 +33,7 @@ import type {
   Selection,
   SelectionFields,
   OcrJobStatus,
+  FieldHistory,
 } from './projects';
 
 // Labels seeded into every new project. File labels apply to whole files;
@@ -476,6 +480,7 @@ export async function createFileRecord(
   author: string | null,
   folderId: string | null,
   text: string | null = null,
+  editor: { uid: string; name: string } | null = null,
 ): Promise<FileDoc> {
   const [row] = await db
     .insert(filesTable)
@@ -492,6 +497,25 @@ export async function createFileRecord(
       checkedOutBy: null,
     })
     .returning();
+
+  // Seed a baseline version for any field already populated at creation (only
+  // `author` can be set here) so history isn't empty for the original value.
+  if (editor) {
+    const now = Date.now();
+    const baseline = FILE_VERSIONED_FIELDS.filter(
+      (f) => toVersionText(row[f]) !== null,
+    ).map((f) => ({
+      fileId: row.id,
+      field: f,
+      value: toVersionText(row[f]),
+      editorUid: editor.uid,
+      editorName: editor.name,
+      createdAt: now,
+    }));
+    if (baseline.length > 0) {
+      await db.insert(fileFieldVersions).values(baseline);
+    }
+  }
 
   if (folderId) {
     await db.insert(fileFolders).values({ fileId: row.id, folderId }).onConflictDoNothing();
@@ -901,6 +925,117 @@ export async function getDraft(
 }
 
 // Upsert the draft snapshot for (fileId, uid). Never touches the main tables.
+// ── field version history ───────────────────────────────────────────────────────
+
+// The file/information fields whose edits are recorded in version history. Kept
+// in sync with the columns the sidebars expose; labels and PDF selections are
+// intentionally excluded (labels persist outside Submit; selections aren't text).
+const FILE_VERSIONED_FIELDS = [
+  'author',
+  'createdDate',
+  'source',
+  'overallBias',
+  'fileReliability',
+  'fileCredibility',
+  'fileReliabilityCode',
+  'fileCredibilityCode',
+] as const;
+
+const INFORMATION_VERSIONED_FIELDS = [
+  'informationTitle',
+  'informationText',
+  'overallBias',
+  'informationReliability',
+  'informationCredibility',
+  'informationReliabilityCode',
+  'informationCredibilityCode',
+] as const;
+
+// Version values are stored as text; numbers (e.g. created_date) are
+// stringified and empty/absent values collapse to null so "unset" compares
+// equal across a numeric null and a missing key.
+function toVersionText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return String(value);
+}
+
+function valuesEqual(a: unknown, b: unknown): boolean {
+  return toVersionText(a) === toVersionText(b);
+}
+
+// Resolve the display name to stamp on a version row. Prefers the editor's
+// Cognito `name`; falls back to the email local-part, then 'Unknown'. Never
+// throws — a Cognito lookup failure just degrades to the email-based name.
+export async function resolveEditorName(uid: string, email: string): Promise<string> {
+  const profile = await getCognitoProfile(uid);
+  const name = profile?.name?.trim();
+  if (name) return name;
+  const local = email.split('@')[0]?.trim();
+  return local || 'Unknown';
+}
+
+// Fetch the full field history for a file, grouped by field name and ordered
+// newest-first within each field.
+export async function getFileHistory(
+  projectId: string,
+  fileId: string,
+): Promise<FieldHistory> {
+  await getFile(projectId, fileId); // scope check: file belongs to project
+  const rows = await db
+    .select({
+      field: fileFieldVersions.field,
+      value: fileFieldVersions.value,
+      editorName: fileFieldVersions.editorName,
+      createdAt: fileFieldVersions.createdAt,
+    })
+    .from(fileFieldVersions)
+    .where(eq(fileFieldVersions.fileId, fileId))
+    .orderBy(desc(fileFieldVersions.createdAt));
+  return groupHistory(rows);
+}
+
+export async function getInformationHistory(
+  projectId: string,
+  fileId: string,
+  informationId: string,
+): Promise<FieldHistory> {
+  await getFile(projectId, fileId); // scope check
+  const rows = await db
+    .select({
+      field: informationFieldVersions.field,
+      value: informationFieldVersions.value,
+      editorName: informationFieldVersions.editorName,
+      createdAt: informationFieldVersions.createdAt,
+    })
+    .from(informationFieldVersions)
+    .innerJoin(
+      informationTable,
+      eq(informationFieldVersions.informationId, informationTable.id),
+    )
+    .where(
+      and(
+        eq(informationFieldVersions.informationId, informationId),
+        eq(informationTable.fileId, fileId),
+      ),
+    )
+    .orderBy(desc(informationFieldVersions.createdAt));
+  return groupHistory(rows);
+}
+
+function groupHistory(
+  rows: { field: string; value: string | null; editorName: string; createdAt: number }[],
+): FieldHistory {
+  const history: FieldHistory = {};
+  for (const row of rows) {
+    (history[row.field] ??= []).push({
+      value: row.value,
+      editorName: row.editorName,
+      createdAt: row.createdAt,
+    });
+  }
+  return history;
+}
+
 export async function saveDraft(
   projectId: string,
   fileId: string,
@@ -939,11 +1074,16 @@ export async function discardDraft(
 //     for the file but are absent from the snapshot.
 //   - information_selections: per surviving information row, upsert the
 //     snapshot's selections and delete any stored selection not in it.
+//
+// Version history: for every in-scope field whose value actually changes, a row
+// is appended to the *_field_versions tables (a brand-new information row seeds
+// a baseline for each of its non-empty fields), attributed to `editorName`.
 export async function submitDraft(
   projectId: string,
   fileId: string,
   uid: string,
   snapshot: FileDraftSnapshot,
+  editorName: string,
 ): Promise<void> {
   // Confirm the file belongs to this project before mutating anything.
   await getFile(projectId, fileId);
@@ -954,8 +1094,31 @@ export async function submitDraft(
   const invalid = validateDraftForSubmit(snapshot);
   if (invalid) throw new Error('Invalid');
 
+  // One timestamp for the whole submit; every version row it writes shares it.
+  const now = Date.now();
+
   await db.transaction(async (tx) => {
-    // (1) file metadata
+    // (1) file metadata — diff against current values before overwriting so we
+    // record a version only for fields that actually changed.
+    const [currentFile] = await tx
+      .select()
+      .from(filesTable)
+      .where(and(eq(filesTable.id, fileId), eq(filesTable.projectId, projectId)));
+    if (currentFile) {
+      const fileVersions = FILE_VERSIONED_FIELDS.filter(
+        (f) => !valuesEqual(currentFile[f], snapshot.metadata[f]),
+      ).map((f) => ({
+        fileId,
+        field: f,
+        value: toVersionText(snapshot.metadata[f]),
+        editorUid: uid,
+        editorName,
+        createdAt: now,
+      }));
+      if (fileVersions.length > 0) {
+        await tx.insert(fileFieldVersions).values(fileVersions);
+      }
+    }
     await tx
       .update(filesTable)
       .set(snapshot.metadata)
@@ -963,15 +1126,18 @@ export async function submitDraft(
 
     // (2) information — delete rows no longer in the snapshot, then upsert.
     const keepInfoIds = snapshot.information.map((i) => i.id);
+    // Full current rows (not just ids) so we can diff each field for history.
     const existingInfo = await tx
-      .select({ id: informationTable.id })
+      .select()
       .from(informationTable)
       .where(eq(informationTable.fileId, fileId));
+    const existingInfoById = new Map(existingInfo.map((r) => [r.id, r]));
     const infoToDelete = existingInfo
       .map((r) => r.id)
       .filter((id) => !keepInfoIds.includes(id));
     if (infoToDelete.length > 0) {
-      // information_selections cascade-delete with their information row.
+      // information_selections and information_field_versions cascade-delete
+      // with their information row.
       await tx
         .delete(informationTable)
         .where(
@@ -992,10 +1158,31 @@ export async function submitDraft(
         informationReliabilityCode: info.informationReliabilityCode,
         informationCredibilityCode: info.informationCredibilityCode,
       };
+
+      // Version diff: for an existing row, record fields that changed; for a
+      // brand-new row, seed a baseline version for each non-empty field.
+      const prev = existingInfoById.get(info.id);
+      const infoVersions = INFORMATION_VERSIONED_FIELDS.filter((f) =>
+        prev ? !valuesEqual(prev[f], info[f]) : toVersionText(info[f]) !== null,
+      ).map((f) => ({
+        informationId: info.id,
+        field: f,
+        value: toVersionText(info[f]),
+        editorUid: uid,
+        editorName,
+        createdAt: now,
+      }));
+
       await tx
         .insert(informationTable)
         .values({ id: info.id, fileId, ...fields })
         .onConflictDoUpdate({ target: informationTable.id, set: fields });
+
+      // Insert version rows only after the information row exists (the FK
+      // requires it) — matters for a brand-new row's baseline.
+      if (infoVersions.length > 0) {
+        await tx.insert(informationFieldVersions).values(infoVersions);
+      }
 
       // (3) selections for this information row — delete absent, upsert present.
       const keepSelIds = info.selections.map((s) => s.id);

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -9,6 +10,7 @@ import {
 import {
   addLabelToInformation,
   getInformation,
+  getInformationHistory,
   newInformationId,
   removeLabelFromInformation,
   type FileDoc,
@@ -19,6 +21,8 @@ import type { FileDraft } from "./useFileDraft";
 import DeleteInformationModal from "./DeleteInformationModal";
 import LabelPill from "./LabelPill";
 import AdmiraltyCodeSelect from "./AdmiraltyCodeSelect";
+import { useFieldHistory } from "./useFieldHistory";
+import FieldHistoryButton from "./FieldHistoryButton";
 
 // One entry in the working draft's information list, including its staged
 // selections. The editor shows/edits the Information fields; selections are
@@ -146,6 +150,10 @@ export default function InformationSidebar({
   // The entry awaiting delete confirmation, or null when the modal is closed.
   const [deleteTarget, setDeleteTarget] = useState<DraftInformation | null>(null);
 
+  // Bumped after a successful Submit so the field history popovers refresh with
+  // the just-published edits.
+  const [historyReloadToken, setHistoryReloadToken] = useState(0);
+
   function patchSelected(fields: Partial<Omit<DraftInformation, "id" | "selections">>) {
     if (!selectedItem) return;
     draft.upsertInformation({ ...selectedItem, ...fields });
@@ -253,6 +261,7 @@ export default function InformationSidebar({
   useEffect(() => {
     if (draft.status === "submitted") {
       setPersistedIds(new Set(allItems.map((item) => item.id)));
+      setHistoryReloadToken((n) => n + 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.status]);
@@ -261,6 +270,18 @@ export default function InformationSidebar({
   // the database. The label API requires the row to exist, so labels are blocked
   // until the user saves/submits.
   const isUnsaved = selectedId !== null && !persistedIds.has(selectedId);
+
+  // Field version history for the selected entry. Disabled (no fetch) when
+  // nothing is selected or the entry is unsaved — an unsaved row has no id in
+  // the database and thus no history yet (mirrors the label-picker gate).
+  const historyLoader = useCallback(
+    () => getInformationHistory(projectId, file.id, selectedId as string),
+    [projectId, file.id, selectedId],
+  );
+  const history = useFieldHistory(
+    selectedId !== null && !isUnsaved ? historyLoader : null,
+    `${selectedId}:${historyReloadToken}`,
+  );
 
   // Resolve the selected entry's label ids against the project's information
   // labels, preserving the project's order; the rest are offered in the picker.
@@ -379,8 +400,13 @@ export default function InformationSidebar({
             )}
             <div className="flex flex-col gap-3">
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Title
+                  <FieldHistoryButton
+                    fieldLabel="Title"
+                    versions={history.versionsFor("informationTitle")}
+                    hidden={isUnsaved}
+                  />
                 </span>
                 <input
                   type="text"
@@ -443,8 +469,13 @@ export default function InformationSidebar({
               </div>
 
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Information Text
+                  <FieldHistoryButton
+                    fieldLabel="Information Text"
+                    versions={history.versionsFor("informationText")}
+                    hidden={isUnsaved}
+                  />
                 </span>
                 <textarea
                   value={text}
@@ -458,8 +489,13 @@ export default function InformationSidebar({
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Overall Bias
+                  <FieldHistoryButton
+                    fieldLabel="Overall Bias"
+                    versions={history.versionsFor("overallBias")}
+                    hidden={isUnsaved}
+                  />
                 </span>
                 <textarea
                   value={bias}
@@ -480,11 +516,23 @@ export default function InformationSidebar({
                   patchSelected({ informationReliabilityCode: code })
                 }
                 disabled={!isHeldByMe || lockedByOther}
+                labelAccessory={
+                  <FieldHistoryButton
+                    fieldLabel="Reliability Rating"
+                    versions={history.versionsFor("informationReliabilityCode")}
+                    hidden={isUnsaved}
+                  />
+                }
               />
 
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Information Reliability
+                  <FieldHistoryButton
+                    fieldLabel="Information Reliability"
+                    versions={history.versionsFor("informationReliability")}
+                    hidden={isUnsaved}
+                  />
                 </span>
                 <textarea
                   value={reliability}
@@ -507,11 +555,23 @@ export default function InformationSidebar({
                   patchSelected({ informationCredibilityCode: code })
                 }
                 disabled={!isHeldByMe || lockedByOther}
+                labelAccessory={
+                  <FieldHistoryButton
+                    fieldLabel="Credibility Rating"
+                    versions={history.versionsFor("informationCredibilityCode")}
+                    hidden={isUnsaved}
+                  />
+                }
               />
 
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Information Credibility
+                  <FieldHistoryButton
+                    fieldLabel="Information Credibility"
+                    versions={history.versionsFor("informationCredibility")}
+                    hidden={isUnsaved}
+                  />
                 </span>
                 <textarea
                   value={credibility}

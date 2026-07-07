@@ -303,6 +303,53 @@ export type FileDraftSnapshot = {
   }>;
 };
 
+// Per-field edit history for file metadata and information (see field version
+// history feature). A row is written by Submit for each field whose value
+// actually changed, plus a baseline row for a field's first non-empty value.
+// `value` is the new value as text (numbers like created_date stringified;
+// null means the field was cleared). `editorName` is the editor's display name
+// captured at edit time (denormalised) so a later rename never rewrites old
+// history. Rows cascade-delete with their parent file/information row.
+export const fileFieldVersions = pgTable(
+  'file_field_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    field: text('field').notNull(),
+    value: text('value'),
+    editorUid: text('editor_uid').notNull(),
+    editorName: text('editor_name').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => [
+    index('file_field_versions_lookup_idx').on(t.fileId, t.field, t.createdAt),
+  ],
+);
+
+export const informationFieldVersions = pgTable(
+  'information_field_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    informationId: uuid('information_id')
+      .notNull()
+      .references(() => information.id, { onDelete: 'cascade' }),
+    field: text('field').notNull(),
+    value: text('value'),
+    editorUid: text('editor_uid').notNull(),
+    editorName: text('editor_name').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => [
+    index('information_field_versions_lookup_idx').on(
+      t.informationId,
+      t.field,
+      t.createdAt,
+    ),
+  ],
+);
+
 // One draft per (file, user). Drafts are write-and-read-by-key only — no
 // tsvector / GIN indexes — and cascade-delete with the file.
 export const fileDrafts = pgTable(

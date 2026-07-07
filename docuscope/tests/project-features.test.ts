@@ -640,6 +640,75 @@ test.describe("Information view", () => {
   });
 });
 
+// ── Field version history ─────────────────────────────────────────────────────
+
+test.describe("Field version history", () => {
+  test("a file field's history popover lists the published value and editor", async ({
+    page,
+  }) => {
+    await signUpAndOpenProject(page, `history-file-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    // Open the file sidebar, check out, edit Author, and submit to publish it.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+    await fileSidebar.getByRole("button", { name: "Check Out" }).click();
+    await expect(fileSidebar.getByRole("button", { name: "Check In" })).toBeVisible();
+    await fileSidebar.getByLabel("Author").fill("Ada Lovelace");
+    await fileSidebar.getByRole("button", { name: "Submit" }).click();
+    await expect(fileSidebar.getByText("Submitted.")).toBeVisible();
+
+    // Open the Author field's version-history popover via its clock button.
+    const authorField = fileSidebar.locator("label").filter({ hasText: "Author" });
+    await authorField.getByRole("button", { name: "Version history" }).click();
+
+    // The popover shows the just-published value.
+    const popover = fileSidebar.getByRole("dialog", { name: "Version history" });
+    await expect(popover).toBeVisible();
+    await expect(popover.getByText("Ada Lovelace")).toBeVisible();
+  });
+
+  test("the history icon is hidden for an unsaved information entry and appears after submit", async ({
+    page,
+  }) => {
+    await signUpAndOpenProject(page, `history-info-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    // Check out and open the information sidebar.
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+    await fileSidebar.getByRole("button", { name: "Check Out" }).click();
+    await expect(fileSidebar.getByRole("button", { name: "Check In" })).toBeVisible();
+    await fileSidebar.getByRole("button", { name: "Open information view" }).click();
+
+    const infoSidebar = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Information" }),
+    });
+
+    // Create a new entry — unsaved until Submit, so no history exists yet.
+    await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
+    await infoSidebar.locator("input[placeholder='Untitled']").fill("New Claim");
+
+    const titleField = infoSidebar.locator("label").filter({ hasText: "Title" });
+    // While unsaved, the Title field shows no version-history button.
+    await expect(
+      titleField.getByRole("button", { name: "Version history" }),
+    ).toHaveCount(0);
+
+    // Submit persists the entry and seeds its baseline version.
+    await fileSidebar.getByRole("button", { name: "Submit" }).click();
+    await expect(fileSidebar.getByText("Submitted.")).toBeVisible();
+
+    // The clock button now appears; its popover shows the baseline value.
+    await titleField.getByRole("button", { name: "Version history" }).click();
+    const popover = infoSidebar.getByRole("dialog", { name: "Version history" });
+    await expect(popover).toBeVisible();
+    await expect(popover.getByText("New Claim")).toBeVisible();
+  });
+});
+
 // ── Default labels ──────────────────────────────────────────────────────────────
 
 test.describe("Default labels", () => {
