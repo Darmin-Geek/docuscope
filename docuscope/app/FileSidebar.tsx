@@ -23,6 +23,8 @@ import {
 } from "@/lib/projects";
 import { useFieldHistory } from "./useFieldHistory";
 import FieldHistoryButton from "./FieldHistoryButton";
+import RichTextEditor from "./RichTextEditor";
+import { htmlOrNull } from "@/lib/richText";
 import {
   findFolderContainingFile,
 } from "@/lib/folderTree";
@@ -660,16 +662,15 @@ export default function FileSidebar({
               <FieldHistoryButton
                 fieldLabel="Source"
                 versions={history.versionsFor("source")}
+                renderRich
               />
             </span>
-            <textarea
+            <RichTextEditor
+              ariaLabel="Source"
               value={source}
-              onChange={(event) =>
-                draft.setMetadata({ source: emptyToNull(event.target.value) })
-              }
+              onChange={(html) => draft.setMetadata({ source: htmlOrNull(html) })}
               disabled={!isHeldByMe || lockedByOther}
-              rows={3}
-              className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+              minRows={3}
             />
           </label>
 
@@ -679,16 +680,17 @@ export default function FileSidebar({
               <FieldHistoryButton
                 fieldLabel="Overall Bias"
                 versions={history.versionsFor("overallBias")}
+                renderRich
               />
             </span>
-            <textarea
+            <RichTextEditor
+              ariaLabel="Overall Bias"
               value={overallBias}
-              onChange={(event) =>
-                draft.setMetadata({ overallBias: emptyToNull(event.target.value) })
+              onChange={(html) =>
+                draft.setMetadata({ overallBias: htmlOrNull(html) })
               }
               disabled={!isHeldByMe || lockedByOther}
-              rows={3}
-              className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+              minRows={3}
             />
           </label>
 
@@ -712,18 +714,17 @@ export default function FileSidebar({
               <FieldHistoryButton
                 fieldLabel="Overall Reliability"
                 versions={history.versionsFor("fileReliability")}
+                renderRich
               />
             </span>
-            <textarea
+            <RichTextEditor
+              ariaLabel="Overall Reliability"
               value={reliability}
-              onChange={(event) =>
-                draft.setMetadata({
-                  fileReliability: emptyToNull(event.target.value),
-                })
+              onChange={(html) =>
+                draft.setMetadata({ fileReliability: htmlOrNull(html) })
               }
               disabled={!isHeldByMe || lockedByOther}
-              rows={3}
-              className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+              minRows={3}
             />
           </label>
 
@@ -747,18 +748,17 @@ export default function FileSidebar({
               <FieldHistoryButton
                 fieldLabel="Overall Credibility"
                 versions={history.versionsFor("fileCredibility")}
+                renderRich
               />
             </span>
-            <textarea
+            <RichTextEditor
+              ariaLabel="Overall Credibility"
               value={credibility}
-              onChange={(event) =>
-                draft.setMetadata({
-                  fileCredibility: emptyToNull(event.target.value),
-                })
+              onChange={(html) =>
+                draft.setMetadata({ fileCredibility: htmlOrNull(html) })
               }
               disabled={!isHeldByMe || lockedByOther}
-              rows={3}
-              className="resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]"
+              minRows={3}
             />
           </label>
 
