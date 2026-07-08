@@ -23,6 +23,8 @@ import LabelPill from "./LabelPill";
 import AdmiraltyCodeSelect from "./AdmiraltyCodeSelect";
 import { useFieldHistory } from "./useFieldHistory";
 import FieldHistoryButton from "./FieldHistoryButton";
+import RichTextEditor from "./RichTextEditor";
+import { htmlOrNull } from "@/lib/richText";
 
 // One entry in the working draft's information list, including its staged
 // selections. The editor shows/edits the Information fields; selections are
@@ -60,13 +62,6 @@ type InformationSidebarProps = {
   // "active information" in sync (the PDF viewer marks selections against it).
   onSelectedIdChange?: (id: string | null) => void;
 };
-
-// A blank field is stored as "unset" (null) rather than an empty string. The
-// raw value is otherwise kept verbatim so the controlled input can hold
-// interior/trailing spaces while the user is still typing (mirrors FileSidebar).
-function emptyToNull(value: string): string | null {
-  return value.length > 0 ? value : null;
-}
 
 export default function InformationSidebar({
   projectId,
@@ -293,9 +288,6 @@ export default function InformationSidebar({
     (label) => !currentLabels.includes(label.id),
   );
 
-  const fieldClass =
-    "resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]";
-
   return (
     <aside
       className={
@@ -474,17 +466,18 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Information Text"
                     versions={history.versionsFor("informationText")}
+                    renderRich
                     hidden={isUnsaved}
                   />
                 </span>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="Information Text"
                   value={text}
-                  onChange={(event) =>
-                    patchSelected({ informationText: emptyToNull(event.target.value) })
+                  onChange={(html) =>
+                    patchSelected({ informationText: htmlOrNull(html) })
                   }
                   disabled={!isHeldByMe || lockedByOther}
-                  rows={4}
-                  className={fieldClass}
+                  minRows={4}
                 />
               </label>
 
@@ -494,17 +487,18 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Overall Bias"
                     versions={history.versionsFor("overallBias")}
+                    renderRich
                     hidden={isUnsaved}
                   />
                 </span>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="Overall Bias"
                   value={bias}
-                  onChange={(event) =>
-                    patchSelected({ overallBias: emptyToNull(event.target.value) })
+                  onChange={(html) =>
+                    patchSelected({ overallBias: htmlOrNull(html) })
                   }
                   disabled={!isHeldByMe || lockedByOther}
-                  rows={3}
-                  className={fieldClass}
+                  minRows={3}
                 />
               </label>
 
@@ -531,19 +525,18 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Information Reliability"
                     versions={history.versionsFor("informationReliability")}
+                    renderRich
                     hidden={isUnsaved}
                   />
                 </span>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="Information Reliability"
                   value={reliability}
-                  onChange={(event) =>
-                    patchSelected({
-                      informationReliability: emptyToNull(event.target.value),
-                    })
+                  onChange={(html) =>
+                    patchSelected({ informationReliability: htmlOrNull(html) })
                   }
                   disabled={!isHeldByMe || lockedByOther}
-                  rows={3}
-                  className={fieldClass}
+                  minRows={3}
                 />
               </label>
 
@@ -570,19 +563,18 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Information Credibility"
                     versions={history.versionsFor("informationCredibility")}
+                    renderRich
                     hidden={isUnsaved}
                   />
                 </span>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="Information Credibility"
                   value={credibility}
-                  onChange={(event) =>
-                    patchSelected({
-                      informationCredibility: emptyToNull(event.target.value),
-                    })
+                  onChange={(html) =>
+                    patchSelected({ informationCredibility: htmlOrNull(html) })
                   }
                   disabled={!isHeldByMe || lockedByOther}
-                  rows={3}
-                  className={fieldClass}
+                  minRows={3}
                 />
               </label>
             </div>
