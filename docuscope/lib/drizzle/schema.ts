@@ -81,21 +81,26 @@ export const files = pgTable('files', {
   fileCredibilityCode: text('file_credibility_code'),
   checkedOutBy: text('checked_out_by'),
 
-  // Generated stored tsvector columns — one per searchable metadata field.
+  // Generated stored tsvector columns — one per searchable metadata field. The
+  // paragraph fields now hold sanitised HTML (issue #81), so their vectors strip
+  // "<...>" tags to spaces before tokenising, keeping search on visible words
+  // (a search for "biased" still matches "<strong>biased</strong>", and tag
+  // names like "strong"/"li" never become search tokens). Author is single-line
+  // plain text and is left untouched.
   authorTsv: tsvector('author_tsv').generatedAlwaysAs(
     sql`to_tsvector('english', coalesce(author, ''))`,
   ),
   overallBiasTsv: tsvector('overall_bias_tsv').generatedAlwaysAs(
-    sql`to_tsvector('english', coalesce(overall_bias, ''))`,
+    sql`to_tsvector('english', regexp_replace(coalesce(overall_bias, ''), '<[^>]+>', ' ', 'g'))`,
   ),
   sourceTsv: tsvector('source_tsv').generatedAlwaysAs(
-    sql`to_tsvector('english', coalesce(source, ''))`,
+    sql`to_tsvector('english', regexp_replace(coalesce(source, ''), '<[^>]+>', ' ', 'g'))`,
   ),
   fileReliabilityTsv: tsvector('file_reliability_tsv').generatedAlwaysAs(
-    sql`to_tsvector('english', coalesce(file_reliability, ''))`,
+    sql`to_tsvector('english', regexp_replace(coalesce(file_reliability, ''), '<[^>]+>', ' ', 'g'))`,
   ),
   fileCredibilityTsv: tsvector('file_credibility_tsv').generatedAlwaysAs(
-    sql`to_tsvector('english', coalesce(file_credibility, ''))`,
+    sql`to_tsvector('english', regexp_replace(coalesce(file_credibility, ''), '<[^>]+>', ' ', 'g'))`,
   ),
 },
 (t) => [
@@ -214,20 +219,22 @@ export const information = pgTable(
     informationReliabilityCode: text('information_reliability_code'),
     informationCredibilityCode: text('information_credibility_code'),
 
+    // Title is single-line plain text; the four paragraph fields hold sanitised
+    // HTML (issue #81) so their vectors strip "<...>" tags before tokenising.
     titleTsv: tsvector('title_tsv').generatedAlwaysAs(
       sql`to_tsvector('english', coalesce(information_title, ''))`,
     ),
     textTsv: tsvector('text_tsv').generatedAlwaysAs(
-      sql`to_tsvector('english', coalesce(information_text, ''))`,
+      sql`to_tsvector('english', regexp_replace(coalesce(information_text, ''), '<[^>]+>', ' ', 'g'))`,
     ),
     overallBiasTsv: tsvector('overall_bias_tsv').generatedAlwaysAs(
-      sql`to_tsvector('english', coalesce(overall_bias, ''))`,
+      sql`to_tsvector('english', regexp_replace(coalesce(overall_bias, ''), '<[^>]+>', ' ', 'g'))`,
     ),
     reliabilityTsv: tsvector('reliability_tsv').generatedAlwaysAs(
-      sql`to_tsvector('english', coalesce(information_reliability, ''))`,
+      sql`to_tsvector('english', regexp_replace(coalesce(information_reliability, ''), '<[^>]+>', ' ', 'g'))`,
     ),
     credibilityTsv: tsvector('credibility_tsv').generatedAlwaysAs(
-      sql`to_tsvector('english', coalesce(information_credibility, ''))`,
+      sql`to_tsvector('english', regexp_replace(coalesce(information_credibility, ''), '<[^>]+>', ' ', 'g'))`,
     ),
   },
   (t) => [

@@ -71,6 +71,13 @@
       "when": 1782954792790,
       "tag": "0009_complete_madrox",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783531619355,
+      "tag": "0010_round_venom",
+      "breakpoints": true
     }
   ]
 }
