@@ -12,6 +12,9 @@ type FieldHistoryButtonProps = {
   // Optional formatter for a version's stored value (e.g. render a timestamp as
   // a date). Receives the raw text value; null means the field was empty.
   formatValue?: (value: string | null) => string;
+  // When true the field stores sanitised HTML (issue #81): the popover renders
+  // each version as formatted rich text instead of escaped plain text.
+  renderRich?: boolean;
   // When true the button renders nothing — used for information entries that
   // aren't persisted yet and therefore have no history to show.
   hidden?: boolean;
@@ -25,6 +28,7 @@ export default function FieldHistoryButton({
   fieldLabel,
   versions,
   formatValue,
+  renderRich = false,
   hidden = false,
 }: FieldHistoryButtonProps) {
   const [open, setOpen] = useState(false);
@@ -90,7 +94,11 @@ export default function FieldHistoryButton({
         </svg>
       </button>
       {open && (
-        <FieldHistoryPopover versions={versions} formatValue={formatValue} />
+        <FieldHistoryPopover
+          versions={versions}
+          formatValue={formatValue}
+          renderRich={renderRich}
+        />
       )}
     </span>
   );
