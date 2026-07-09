@@ -25,6 +25,27 @@ import { useFieldHistory } from "./useFieldHistory";
 import FieldHistoryButton from "./FieldHistoryButton";
 import RichTextEditor from "./RichTextEditor";
 import { htmlOrNull } from "@/lib/richText";
+import DatetimeEditor from "./DatetimeEditor";
+import {
+  getDatetimes,
+  addDatetime,
+  updateDatetime,
+  deleteDatetime,
+  type InformationDatetime,
+  type DatetimeInputPayload,
+} from "@/lib/timelines";
+import { humanDatetime, valueToParts } from "@/lib/datetimePrecision";
+
+// One-line human summary of a stored datetime, e.g. "the 1980s → Mar 1995".
+function datetimeSummary(dt: InformationDatetime): string {
+  return humanDatetime({
+    isRange: dt.isRange,
+    start: valueToParts(dt.startValue),
+    startPrecision: dt.startPrecision,
+    end: dt.isRange && dt.endValue ? valueToParts(dt.endValue) : undefined,
+    endPrecision: dt.isRange ? dt.endPrecision ?? undefined : undefined,
+  });
+}
 
 // One entry in the working draft's information list, including its staged
 // selections. The editor shows/edits the Information fields; selections are
@@ -145,6 +166,17 @@ export default function InformationSidebar({
   // The entry awaiting delete confirmation, or null when the modal is closed.
   const [deleteTarget, setDeleteTarget] = useState<DraftInformation | null>(null);
 
+  // Datetimes attached to the selected entry. Like labels, these are persisted
+  // immediately through their own API (not the draft), so they only load for an
+  // entry that already exists in the database. `datetimeEditor` names what the
+  // popover is doing: "new" for a fresh date, an existing record to edit, or
+  // null when closed.
+  const [datetimes, setDatetimes] = useState<InformationDatetime[]>([]);
+  const [datetimeEditor, setDatetimeEditor] = useState<
+    "new" | InformationDatetime | null
+  >(null);
+  const [datetimeError, setDatetimeError] = useState<string | null>(null);
+
   // Bumped after a successful Submit so the field history popovers refresh with
   // the just-published edits.
   const [historyReloadToken, setHistoryReloadToken] = useState(0);
@@ -245,6 +277,66 @@ export default function InformationSidebar({
       );
       setLabelError(
         err instanceof Error ? err.message : "Failed to remove label.",
+      );
+    }
+  }
+
+  // Load the selected entry's datetimes whenever the selection changes to a
+  // persisted row. Unsaved (client-only) rows have no id in the database yet, so
+  // there is nothing to fetch and the section is gated closed.
+  useEffect(() => {
+    setDatetimeEditor(null);
+    setDatetimeError(null);
+    if (selectedId === null || !persistedIds.has(selectedId)) {
+      setDatetimes([]);
+      return;
+    }
+    let active = true;
+    getDatetimes(projectId, file.id, selectedId)
+      .then((rows) => {
+        if (active) setDatetimes(rows);
+      })
+      .catch(() => {
+        if (active) setDatetimes([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId, file.id, selectedId, persistedIds]);
+
+  async function handleSaveDatetime(payload: DatetimeInputPayload) {
+    if (!selectedId) return;
+    setDatetimeError(null);
+    const editing = datetimeEditor;
+    if (editing && editing !== "new") {
+      const updated = await updateDatetime(
+        projectId,
+        file.id,
+        selectedId,
+        editing.id,
+        payload,
+      );
+      setDatetimes((prev) =>
+        prev.map((d) => (d.id === updated.id ? updated : d)),
+      );
+    } else {
+      const created = await addDatetime(projectId, file.id, selectedId, payload);
+      setDatetimes((prev) => [...prev, created]);
+    }
+    setDatetimeEditor(null);
+  }
+
+  async function handleDeleteDatetime(datetimeId: string) {
+    if (!selectedId) return;
+    setDatetimeError(null);
+    const prev = datetimes;
+    setDatetimes((current) => current.filter((d) => d.id !== datetimeId));
+    try {
+      await deleteDatetime(projectId, file.id, selectedId, datetimeId);
+    } catch (err) {
+      setDatetimes(prev);
+      setDatetimeError(
+        err instanceof Error ? err.message : "Failed to delete date.",
       );
     }
   }
@@ -457,6 +549,71 @@ export default function InformationSidebar({
                 )}
                 {labelError && (
                   <p className="text-xs text-red-600 dark:text-red-400">{labelError}</p>
+                )}
+              </div>
+
+              {/* Dates — precision-aware datetimes shown on timelines (see the
+                  timeline feature). Persisted immediately through their own API,
+                  so gated closed until the entry exists in the database. */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                  Dates
+                </span>
+                {datetimes.length > 0 && (
+                  <ul className="flex flex-col gap-1">
+                    {datetimes.map((dt) => (
+                      <li
+                        key={dt.id}
+                        className="flex items-center gap-2 rounded-md border border-black/[.08] px-2 py-1 dark:border-white/[.145]"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-xs text-black dark:text-zinc-50">
+                          {datetimeSummary(dt)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDatetimeEditor(dt)}
+                          disabled={!isHeldByMe || lockedByOther}
+                          aria-label={`Edit date ${datetimeSummary(dt)}`}
+                          className="shrink-0 text-xs text-zinc-500 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteDatetime(dt.id)}
+                          disabled={!isHeldByMe || lockedByOther}
+                          aria-label={`Delete date ${datetimeSummary(dt)}`}
+                          className="shrink-0 leading-none text-zinc-400 transition-colors hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-500 dark:hover:text-zinc-300"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {datetimeEditor !== null ? (
+                  <DatetimeEditor
+                    initial={datetimeEditor === "new" ? null : datetimeEditor}
+                    onSave={handleSaveDatetime}
+                    onCancel={() => setDatetimeEditor(null)}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setDatetimeEditor("new")}
+                    disabled={!isHeldByMe || lockedByOther || isUnsaved}
+                    title={
+                      isUnsaved ? "Save this entry before adding dates" : undefined
+                    }
+                    className="self-start rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                  >
+                    + Add date
+                  </button>
+                )}
+                {datetimeError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {datetimeError}
+                  </p>
                 )}
               </div>
 

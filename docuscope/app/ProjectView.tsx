@@ -20,6 +20,7 @@ import FileSidebar from "./FileSidebar";
 import InformationSidebar from "./InformationSidebar";
 import ProjectSettingsModal from "./ProjectSettingsModal";
 import PdfViewerModal from "./PdfViewerModal";
+import TimelineView from "./TimelineView";
 import { useFileLock } from "./useFileLock";
 import { useFileDraft } from "./useFileDraft";
 
@@ -107,6 +108,11 @@ export default function ProjectView({
     project.contributors,
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Full-screen timeline workspace (layered over the project view like the PDF
+  // viewer). `pendingInfoId` is set when the user clicks a timeline entry so the
+  // information sidebar opens with that piece pre-selected.
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [pendingInfoId, setPendingInfoId] = useState<string | null>(null);
   // Labels currently filtering the file table. A file must carry every selected
   // label to appear; an empty set means no filtering.
   const [selectedLabelIds, setSelectedLabelIds] = useState<Set<string>>(
@@ -267,6 +273,19 @@ export default function ProjectView({
   // and selections together (issue #78).
   const draft = useFileDraft(project.id, selectedFile);
 
+  // Open a piece of information from a timeline entry. Clear the folder filter
+  // and search so the target file is present in the (reloaded) file list, then
+  // open its information sidebar with the clicked entry pre-selected.
+  function openInformationFromTimeline(fileId: string, informationId: string) {
+    setTimelineOpen(false);
+    setSelectedFolderId(null);
+    setSearchQuery("");
+    setSelectedLabelIds(new Set());
+    setSelectedFileId(fileId);
+    setPendingInfoId(informationId);
+    setInformationOpen(true);
+  }
+
   return (
     <div className="flex h-dvh flex-col bg-zinc-50 font-sans dark:bg-black">
       <header className="flex items-center gap-4 border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
@@ -283,9 +302,16 @@ export default function ProjectView({
         </h1>
         <button
           type="button"
+          onClick={() => setTimelineOpen(true)}
+          className="ml-auto flex h-9 items-center justify-center rounded-full border border-solid border-black/[.08] px-4 text-sm font-medium transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+        >
+          Timeline
+        </button>
+        <button
+          type="button"
           onClick={() => setSettingsOpen(true)}
           aria-label="Project settings"
-          className="ml-auto flex h-9 w-9 items-center justify-center rounded-full border border-solid border-black/[.08] text-lg transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-solid border-black/[.08] text-lg transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
         >
           ⚙
         </button>
@@ -314,6 +340,7 @@ export default function ProjectView({
             onSelectFile={(file) => {
               setSelectedFileId(file.id);
               setInformationOpen(false);
+              setPendingInfoId(null);
             }}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
@@ -325,12 +352,13 @@ export default function ProjectView({
           // Sits to the left of the file detail sidebar, overlaying the file
           // table so only the file names stay visible.
           <InformationSidebar
-            key={`info-${selectedFile.id}`}
+            key={`info-${selectedFile.id}-${pendingInfoId ?? ""}`}
             projectId={project.id}
             file={selectedFile}
             labels={informationKindLabels}
             lock={lock}
             draft={draft}
+            initialSelectedId={pendingInfoId}
             canOpenPdf={isPdf(selectedFile.filename)}
             onOpenPdfViewer={(infoId) => {
               setPdfViewerInfoId(infoId);
@@ -364,6 +392,14 @@ export default function ProjectView({
           />
         )}
       </div>
+
+      {timelineOpen && (
+        <TimelineView
+          projectId={project.id}
+          onClose={() => setTimelineOpen(false)}
+          onOpenInformation={openInformationFromTimeline}
+        />
+      )}
 
       {pdfViewerOpen && selectedFile && isPdf(selectedFile.filename) && (
         <PdfViewerModal
