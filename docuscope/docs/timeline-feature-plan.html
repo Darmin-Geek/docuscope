@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Timeline Feature — Implementation Plan</title>
+<style>
+  :root {
+    --ink: #111827;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --bg: #ffffff;
+    --panel: #f9fafb;
+    --accent: #2563eb;
+    --solid: #2563eb;
+    --faded: #2563eb;
+    --axis: #111111;
+    --good: #059669;
+    --warn: #b45309;
+    --code-bg: #0f172a;
+    --code-fg: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+  }
+  main { max-width: 940px; margin: 0 auto; padding: 40px 24px 120px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 4px; }
+  h2 { font-size: 22px; margin: 44px 0 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+  h3 { font-size: 17px; margin: 24px 0 8px; }
+  p { margin: 10px 0; }
+  .sub { color: var(--muted); margin-top: 0; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+  pre { background: var(--code-bg); color: var(--code-fg); padding: 16px; border-radius: 10px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: inherit; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3; margin-left: 8px; vertical-align: middle; }
+  .decisions { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 18px; }
+  .callout { border-left: 4px solid var(--accent); background: #eff6ff; padding: 10px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; }
+  .callout.warn { border-color: var(--warn); background: #fffbeb; }
+  .legend { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 26px; height: 12px; border-radius: 3px; display: inline-block; }
+  .controls { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+  .btn { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); background: #fff; border-radius: 8px; cursor: pointer; }
+  .btn:hover { background: var(--panel); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tl-wrap { border: 1px solid var(--line); border-radius: 12px; padding: 8px; background: #fff; overflow: hidden; }
+  .tl-info { min-height: 20px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .entry-label { font-size: 11px; font-weight: 600; fill: var(--ink); }
+  .entry:hover .bar-solid { filter: brightness(0.9); }
+  .entry { cursor: pointer; }
+  .toc { columns: 2; column-gap: 30px; font-size: 14px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .phase { display: flex; gap: 12px; align-items: baseline; }
+  .phase b { min-width: 78px; color: var(--accent); }
+  footer { color: var(--muted); font-size: 13px; margin-top: 60px; border-top: 1px solid var(--line); padding-top: 16px; }
+
+  /* datetime editor mock */
+  .dte { max-width: 420px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.12); padding: 16px; }
+  .dte h4 { margin: 0 0 12px; font-size: 15px; }
+  .dte .field { margin: 12px 0; }
+  .dte label.lbl { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .03em; }
+  .seg { display: inline-flex; flex-wrap: wrap; gap: 4px; background: var(--panel); padding: 3px; border-radius: 8px; }
+  .seg button { font: inherit; font-size: 12px; padding: 4px 9px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; color: var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .dte .inputs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  .dte .inputs input { width: 60px; font: inherit; font-size: 13px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; }
+  .dte .inputs input.yr { width: 72px; }
+  .dte .inputs select, .dte input.lblinput { font: inherit; font-size: 13px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; }
+  .dte input.lblinput { width: 100%; }
+  .endpoint { border: 1px dashed var(--line); border-radius: 8px; padding: 10px; margin-top: 8px; }
+  .endpoint .cap { font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+  .preview { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-top: 12px; }
+  .preview .sentence { font-size: 13px; color: var(--ink); margin-top: 6px; }
+  .dte .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Timeline Feature <span class="tag">Implementation Plan</span></h1>
+  <p class="sub">DocuScope · attach precision-aware datetimes to information and view them on zoomable timelines</p>
+
+  <div class="toc">
+    <a href="#overview">1. Overview</a><br />
+    <a href="#decisions">2. Confirmed decisions</a><br />
+    <a href="#model">3. Datetime &amp; precision model</a><br />
+    <a href="#schema">4. Database schema</a><br />
+    <a href="#api">5. API endpoints</a><br />
+    <a href="#ux">6. UI / UX flows</a><br />
+    <a href="#render">7. Rendering algorithm</a><br />
+    <a href="#sample">8. Sample timeline</a><br />
+    <a href="#edge">9. Edge cases</a><br />
+    <a href="#testing">10. Testing</a><br />
+    <a href="#phases">11. Phases</a><br />
+  </div>
+
+  <h2 id="overview">1. Overview</h2>
+  <p>
+    Today a piece of <code>information</code> (a claim extracted from a file) carries text,
+    bias, reliability and credibility, but has no notion of <em>when</em> it happened. This
+    feature lets users tag information with one or more <strong>datetimes</strong> — each a point
+    or a range, each carrying its own <strong>precision</strong> (minute → decade → century …) — and
+    then visualise those datetimes on <strong>timelines</strong>.
+  </p>
+  <ul>
+    <li>A <strong>Timeline</strong> button sits at the top-right of <code>ProjectView</code>, next to search.</li>
+    <li>The timeline view lets users create timelines, open them, and add information entries.</li>
+    <li>Each entry renders <strong>above a black time axis</strong> as a bar labelled with the information title.</li>
+    <li><strong>Certain</strong> spans are solid; <strong>uncertain</strong> (imprecise) margins are semi-transparent.</li>
+    <li>Overlapping entries stack into <strong>lanes</strong>, higher up the page.</li>
+    <li>The view <strong>zooms</strong> to focus on a slice of time; clicking an entry opens that information.</li>
+  </ul>
+
+  <h2 id="decisions">2. Confirmed decisions</h2>
+  <div class="decisions">
+    <ul>
+      <li><strong>Multiple datetimes per information.</strong> Each information row owns 0..N datetime entries.</li>
+      <li><strong>Project-scoped, many-to-many.</strong> Timelines belong to a project; one info can appear on many timelines and a timeline holds many info.</li>
+      <li><strong>Any historical / ancient dates.</strong> Storage must not be tied to modern-only epoch assumptions.</li>
+      <li><strong>Imprecision drawn as a faded span.</strong> A decade-precision date fills its whole decade, semi-transparent; precise ranges render as a solid opaque bar.</li>
+    </ul>
+  </div>
+
+  <h2 id="model">3. Datetime &amp; precision model</h2>
+  <p>
+    The core idea: the user enters a <em>human</em> value plus a precision, and we derive a
+    <strong>lower bound</strong> and <strong>upper bound</strong> instant from it. The timeline only ever needs those
+    two numbers to draw; the raw input is kept for editing and display.
+  </p>
+
+  <h3>Precision levels</h3>
+  <p>A datetime <em>endpoint</em> is a value truncated to a precision. The precision determines how wide the uncertainty window is:</p>
+  <table>
+    <tr><th>Precision</th><th>User enters</th><th>Lower bound</th><th>Upper bound (exclusive)</th></tr>
+    <tr><td><code>minute</code></td><td>1994-07-08 13:45</td><td>13:45:00</td><td>13:46:00</td></tr>
+    <tr><td><code>hour</code></td><td>1994-07-08 13:00</td><td>13:00:00</td><td>14:00:00</td></tr>
+    <tr><td><code>day</code></td><td>1994-07-08</td><td>day start</td><td>next day</td></tr>
+    <tr><td><code>month</code></td><td>1994-07</td><td>month start</td><td>next month</td></tr>
+    <tr><td><code>year</code></td><td>1994</td><td>Jan 1 1994</td><td>Jan 1 1995</td></tr>
+    <tr><td><code>decade</code></td><td>1990s</td><td>Jan 1 1990</td><td>Jan 1 2000</td></tr>
+    <tr><td><code>century</code></td><td>1900s</td><td>Jan 1 1900</td><td>Jan 1 2000</td></tr>
+  </table>
+
+  <h3>Point vs. range</h3>
+  <ul>
+    <li>A <strong>point</strong> has one endpoint. It draws as a single faded band spanning that endpoint's <code>[lower, upper]</code> precision window (a precise minute is a thin band; a decade is a wide one).</li>
+    <li>A <strong>range</strong> has a <em>start</em> endpoint and an <em>end</em> endpoint, <strong>each with its own precision</strong>. It draws as:
+      <ul>
+        <li><strong>solid bar</strong> = <code>[start.upper, end.lower]</code> — the interval that is <em>definitely</em> inside the range. Its two ends are the range's endpoints.</li>
+        <li><strong>start precision line</strong> — a faded whisker extending <em>outward</em> (leftward, into the past) from the solid bar's left end, its length = the start endpoint's precision window <code>[start.lower, start.upper]</code>.</li>
+        <li><strong>end precision line</strong> — a faded whisker extending <em>outward</em> (rightward, into the future) from the solid bar's right end, its length = the end endpoint's precision window <code>[end.lower, end.upper]</code>.</li>
+      </ul>
+    </li>
+  </ul>
+  <div class="callout">
+    <strong>Precision lines go out from the endpoints, and the two ends are independent.</strong> The whisker at each end is
+    sized by <em>that</em> end's precision, so a range can have a long fuzzy start and a sharp end (or vice-versa). Examples:
+    <ul style="margin:6px 0 0">
+      <li>"The 1990s" (point) → one wide faded band, no solid bar.</li>
+      <li>"8 Jul 1994 13:45 → 14:30" (minute/minute) → a solid bar with two whiskers so short they read as sharp caps — effectively a clean solid line.</li>
+      <li>"Sometime in the 1980s until March 1995" (decade start, month end) → solid bar from 1990→Feb 1995, a <em>long</em> faded whisker reaching back across the 1980s on the left, and a <em>short</em> faded whisker over March 1995 on the right.</li>
+    </ul>
+  </div>
+
+  <h3>Storing ancient dates</h3>
+  <p>
+    JS <code>Date</code> and epoch-millisecond <code>bigint</code> comfortably cover roughly 271,000 BC – 275,000 AD,
+    which spans all human history. To stay safe and precision-explicit we store each bound as a
+    signed <strong><code>bigint</code> of epoch-milliseconds</strong> computed with a proleptic-Gregorian helper, independent
+    of the browser's local <code>Date</code> quirks. Sorting and range math are plain integer comparisons.
+  </p>
+  <div class="callout warn">
+    <strong>Deep-time note:</strong> if geological ranges (millions of years) are ever needed, epoch-ms overflows human
+    intuition long before it overflows <code>bigint</code>, but tick labelling would need a "years-only" mode. Out of scope
+    for v1; the <code>precision</code> enum leaves room to add <code>era</code>/<code>mya</code> later without a data migration of existing rows.
+  </div>
+
+  <h2 id="schema">4. Database schema <span class="tag">lib/drizzle/schema.ts</span></h2>
+  <p>Three new tables. Datetimes hang off <code>information</code>; timelines are project-scoped; a join table wires them together many-to-many.</p>
+<pre><code>// A datetime attached to a piece of information. Point or range; each endpoint
+// carries its own precision. lower/upper bounds are derived on write (epoch ms,
+// signed bigint) so the timeline can draw with pure integer math.
+export const informationDatetimes = pgTable('information_datetimes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  informationId: uuid('information_id').notNull()
+    .references(() => information.id, { onDelete: 'cascade' }),
+  isRange: boolean('is_range').notNull().default(false),
+
+  // raw input, kept for editing/display
+  startValue: text('start_value').notNull(),           // ISO-ish canonical string
+  startPrecision: text('start_precision').notNull(),   // minute|hour|day|month|year|decade|century
+  endValue: text('end_value'),                         // null when !isRange
+  endPrecision: text('end_precision'),
+
+  // derived bounds (epoch ms, proleptic Gregorian) — what the timeline draws
+  lowerMs: bigint('lower_ms', { mode: 'bigint' }).notNull(),  // start.lower
+  upperMs: bigint('upper_ms', { mode: 'bigint' }).notNull(),  // end.upper (or start.upper for a point)
+  coreLowerMs: bigint('core_lower_ms', { mode: 'bigint' }),   // start.upper (range only)
+  coreUpperMs: bigint('core_upper_ms', { mode: 'bigint' }),   // end.lower   (range only)
+}, (t) => [
+  index('info_datetimes_info_idx').on(t.informationId),
+  index('info_datetimes_bounds_idx').on(t.lowerMs, t.upperMs),
+]);
+
+// A named timeline within a project.
+export const timelines = pgTable('timelines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  // Default view restored whenever the timeline is opened. defaultStartMs is the
+  // left edge (the "default start date"); defaultSpanMs is the window width (the
+  // "default zoom"). Both null ⇒ fall back to fit-all. User-editable.
+  defaultStartMs: bigint('default_start_ms', { mode: 'bigint' }),
+  defaultSpanMs:  bigint('default_span_ms',  { mode: 'bigint' }),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+}, (t) => [index('timelines_project_idx').on(t.projectId)]);
+
+// Which information (via a specific datetime) sits on which timeline.
+// Pinning a datetime — not just an information — lets an info with several
+// datetimes place each one, or the same info on several timelines.
+export const timelineEntries = pgTable('timeline_entries', {
+  timelineId: uuid('timeline_id').notNull()
+    .references(() => timelines.id, { onDelete: 'cascade' }),
+  datetimeId: uuid('datetime_id').notNull()
+    .references(() => informationDatetimes.id, { onDelete: 'cascade' }),
+}, (t) => [primaryKey({ columns: [t.timelineId, t.datetimeId] })]);</code></pre>
+  <p>Run <code>npm run db:generate</code> then commit the migration; <code>npm run db:push</code> for the local Docker Postgres used by tests.</p>
+
+  <h2 id="api">5. API endpoints <span class="tag">app/api/**/route.ts</span></h2>
+  <p>Client wrappers in <code>lib/timelines.ts</code>; Drizzle implementations in <code>lib/timelines.server.ts</code> (mirrors the projects split). All routes verify the id_token and check the caller contributes to the project.</p>
+  <table>
+    <tr><th>Method &amp; path</th><th>Purpose</th></tr>
+    <tr><td><code>GET /api/projects/:pid/timelines</code></td><td>List timelines in a project.</td></tr>
+    <tr><td><code>POST /api/projects/:pid/timelines</code></td><td>Create a timeline (title, description).</td></tr>
+    <tr><td><code>PATCH /api/timelines/:tid</code> · <code>DELETE</code></td><td>Rename / describe / delete, and set the <strong>default view</strong> (<code>defaultStartMs</code>, <code>defaultSpanMs</code>).</td></tr>
+    <tr><td><code>GET /api/timelines/:tid/entries</code></td><td>Return entries joined to info + datetime bounds — everything the renderer needs in one call.</td></tr>
+    <tr><td><code>POST /api/timelines/:tid/entries</code> · <code>DELETE …/:datetimeId</code></td><td>Add / remove a datetime from the timeline.</td></tr>
+    <tr><td><code>GET /api/information/:iid/datetimes</code></td><td>List datetimes on an info row.</td></tr>
+    <tr><td><code>POST /api/information/:iid/datetimes</code> · <code>PATCH</code> · <code>DELETE</code></td><td>CRUD a datetime. Server recomputes <code>lower/upper/core</code> bounds from value+precision so the client can't send inconsistent bounds.</td></tr>
+  </table>
+  <div class="callout">Bounds are derived <strong>server-side</strong> in a shared <code>lib/datetimePrecision.ts</code> (also imported by the client for live preview) — single source of truth, unit-testable in isolation.</div>
+
+  <h2 id="ux">6. UI / UX flows</h2>
+
+  <h3>6.1 Tagging information with a datetime</h3>
+  <p>In <code>InformationSidebar.tsx</code>, add a <strong>"Dates"</strong> section under the existing fields: a compact row per datetime (with edit / delete), and an <strong>"+ Add date"</strong> button that opens the <a href="#entry-ui">datetime editor designed in §6.4</a>. Each saved row shows a one-line human summary, e.g. <em>"the 1980s → March 1995"</em>.</p>
+
+  <h3>6.2 Opening the timeline view</h3>
+  <p>A <strong>Timeline</strong> button in the <code>ProjectView</code> top bar (top-right, beside the search box) opens a full-screen <code>TimelineView</code>, layered like the existing project workspace rather than a modal:</p>
+  <ul>
+    <li><strong>Left rail:</strong> list of the project's timelines + "New timeline" (opens <code>CreateTimelineModal</code>).</li>
+    <li><strong>Main:</strong> the selected timeline's canvas, or an empty state prompting creation.</li>
+    <li><strong>"Add information"</strong> opens a picker (reuses the search box) to attach an info's datetime(s) to this timeline.</li>
+  </ul>
+
+  <h3 id="entry-ui">6.4 Datetime entry UI element <span class="tag">requirement 3</span></h3>
+  <p>
+    This is the popover opened by "+ Add date". It must let a user enter a <em>point or a range</em>, pick a
+    <em>precision per endpoint</em>, and understand the consequence before saving. Design principles:
+  </p>
+  <ul>
+    <li><strong>Precision-first, adaptive fields.</strong> The precision selector is a segmented control (<code>Minute · Hour · Day · Month · Year · Decade · Century</code>). Choosing it decides which inputs appear — pick <em>Year</em> and only a year box shows; <em>Decade</em> shows a "199<u>0s</u>" box; <em>Minute</em> shows date + time. No irrelevant fields are ever visible.</li>
+    <li><strong>Point ↔ Range toggle.</strong> In Range mode a second endpoint block appears with its <em>own independent</em> precision selector — directly modelling "ends can have different precisions".</li>
+    <li><strong>BC/AD &amp; big years.</strong> The year field is a plain signed integer with a BC/AD toggle, so ancient dates need no special calendar widget.</li>
+    <li><strong>Live preview.</strong> A read-only strip mirrors exactly what the timeline will draw — the solid bar plus outward precision whiskers — plus a plain-English sentence. It updates on every keystroke.</li>
+    <li><strong>No separate caption.</strong> The bar on the timeline is labelled by the <em>information's title</em>, so the editor never asks for one — it only captures the date itself.</li>
+  </ul>
+
+  <p>Rendered mock-up (interactive — toggle Point/Range and change either precision to watch the fields and preview react):</p>
+  <div id="entry-mock"></div>
+
+  <p style="font-size:13px;color:var(--muted)">
+    Component tree: <code>DatetimeEditor</code> (popover) → two <code>EndpointField</code> blocks (each = precision segmented
+    control + adaptive inputs) → <code>PrecisionPreview</code> (mini solid-bar-plus-whiskers SVG + sentence). It emits an
+    <code>{ isRange, startValue, startPrecision, endValue?, endPrecision? }</code> payload; the server derives the
+    bounds, and the timeline reads the title from the parent information row. Styling reuses the app's existing sidebar field classes.
+  </p>
+
+  <h3>6.3 The timeline canvas</h3>
+  <ul>
+    <li>A <strong>black horizontal axis</strong> near the bottom with tick marks and time labels; <strong>tick granularity adapts to zoom</strong> — see §6.3.2.</li>
+    <li>Entries render <strong>above</strong> the axis as bars; each shows its information title.</li>
+    <li><strong>Zoom</strong> via scroll-wheel / +/− buttons / drag-to-select a region. A "Fit all" button frames every entry.</li>
+    <li><strong>Click an entry → open the information view</strong> (the existing <code>InformationSidebar</code> for that info's file), so the timeline is a navigation surface into the corpus.</li>
+  </ul>
+
+  <h3>6.3.2 Adaptive time scale (zoom reveals finer units) <span class="tag">requirement</span></h3>
+  <p>
+    The axis is not fixed to years. As the user zooms in, the labels step down through calendar units so there
+    are always ~6–10 readable ticks: <strong>centuries → decades → years → months → days → hours → minutes</strong>.
+    Ticks snap to real calendar boundaries (the 1st of a month, midnight of a day, the top of an hour) rather than
+    arbitrary offsets, and <strong>major</strong> boundaries are emphasised (a taller/darker tick, e.g. January when
+    showing months, or midnight when showing hours) with the parent unit shown for context.
+  </p>
+  <table>
+    <tr><th>Visible span</th><th>Tick unit</th><th>Example labels</th></tr>
+    <tr><td>&gt; ~3 years</td><td>years (1/2/5/10/… "nice" step)</td><td>1990 · 2000 · 2010</td></tr>
+    <tr><td>~4 months – 3 years</td><td>months</td><td>Jan '94 · Apr · Jul · Oct</td></tr>
+    <tr><td>~5 days – 4 months</td><td>days</td><td>1 Jul · 8 Jul · 15 Jul</td></tr>
+    <tr><td>~5 hours – 5 days</td><td>hours</td><td>00:00 (8 Jul) · 06:00 · 12:00</td></tr>
+    <tr><td>&lt; ~5 hours</td><td>minutes</td><td>13:30 · 13:45 · 14:00</td></tr>
+  </table>
+
+  <h3>6.3.3 Default start date &amp; zoom <span class="tag">requirement</span></h3>
+  <p>
+    Each timeline stores its own <strong>default view</strong> — a start date (left edge) and a zoom level (window width),
+    persisted as <code>defaultStartMs</code> / <code>defaultSpanMs</code> on the <code>timelines</code> row. Opening a timeline
+    restores that view; if unset (e.g. a brand-new timeline) it falls back to "fit all entries".
+  </p>
+  <ul>
+    <li><strong>"Set current view as default"</strong> button in the canvas toolbar snapshots the present pan+zoom (a <code>PATCH</code>).</li>
+    <li><strong>"Reset to default"</strong> jumps back to the saved view at any time.</li>
+    <li>Both values are also editable as explicit fields (a date picker + a zoom/scale selector) in the timeline's settings, so a user can type an exact default start date.</li>
+  </ul>
+
+  <h3>6.3.1 Moving through time (pan) <span class="tag">requirement 1</span></h3>
+  <p>Panning left/right must feel effortless — several redundant ways, all sliding the <code>[viewLo, viewHi]</code> window by a delta while keeping its width (the zoom level) fixed:</p>
+  <ul>
+    <li><strong>◀ / ▶ arrow buttons</strong> flanking the canvas (and repeat-on-hold) step the view by ~⅓ of the visible span — an obvious, discoverable control.</li>
+    <li><strong>Keyboard <kbd>←</kbd> / <kbd>→</kbd></strong> when the canvas is focused; <kbd>Shift</kbd> jumps a full span, <kbd>Home</kbd>/<kbd>End</kbd> leap to the first/last entry.</li>
+    <li><strong>Click-drag the canvas background</strong> (grab cursor) to slide the view directly; <strong>Shift + scroll-wheel</strong> pans horizontally (plain wheel still zooms).</li>
+    <li><strong>Overview scrollbar / mini-map</strong> under the axis: a thin strip showing the whole data span with a draggable window handle, so users always see where they are and can leap anywhere.</li>
+  </ul>
+  <p>Pan is clamped to the data span (plus a small margin) so users can't get lost in empty time; the mini-map handle makes the current position explicit.</p>
+
+  <h2 id="render">7. Rendering algorithm</h2>
+  <ol>
+    <li><strong>Scale.</strong> The visible window <code>[viewLowerMs, viewUpperMs]</code> maps linearly to pixel x. Zoom changes the window's width; pan slides it (§6.3.1).</li>
+    <li><strong>Geometry.</strong> A <em>range</em> draws a full-height <strong>solid bar</strong> over <code>[coreLower, coreUpper]</code>, then a faded <strong>precision whisker</strong> extending <em>outward</em> from each end — left whisker over <code>[lower, coreLower]</code>, right whisker over <code>[coreUpper, upper]</code> — each sized by its own endpoint's precision, so the two can differ. A <em>point</em> draws a single faded band over <code>[lower, upper]</code>. Whiskers are thinner than the bar and mid-aligned so they read as "lines out of the endpoints"; a zero-width whisker (precise end) collapses to a sharp cap.</li>
+    <li><strong>Lane packing (overlap → stack up).</strong> Sort entries by <code>lower</code>. Greedily assign each to the lowest lane whose last bar ends before this bar starts (compare in <em>pixels</em>, including whiskers and label width, so touching bars don't collide). New lanes stack upward from the axis. This is the classic interval-partition/greedy-colouring approach.</li>
+    <li><strong>Adaptive ticks.</strong> Pick the tick unit from the visible span (§6.3.2): year "nice" steps when wide, otherwise months → days → hours → minutes, each snapped to calendar boundaries with major boundaries emphasised.</li>
+    <li><strong>Draw.</strong> Axis + adaptive ticks first, then each entry at <code>y = axisY − (lane+1)*laneHeight</code>: whiskers at ~35% opacity, solid bar at full opacity, title clipped to the bar (tooltip on hover for the full title).</li>
+  </ol>
+<pre><code>function assignLanes(entries /* sorted by lowerPx */) {
+  const laneEnds = [];               // rightmost px used per lane
+  for (const e of entries) {
+    let lane = laneEnds.findIndex(end => end &lt; e.leftPx - GAP);
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+    laneEnds[lane] = e.rightPx;      // includes label width
+    e.lane = lane;
+  }
+  return laneEnds.length;            // total lanes = canvas height
+}</code></pre>
+
+  <h2 id="sample">8. Sample timeline</h2>
+  <p>A working mock of the canvas below (SVG). Solid bars are the certain span; faded <strong>precision whiskers extend outward from each endpoint</strong>, each sized by that end's own precision. Overlaps stack into higher lanes. <strong>Pan</strong> with ◀ ▶, the <kbd>←</kbd>/<kbd>→</kbd> keys (click the canvas first), or by dragging the background; <strong>zoom</strong> with the buttons or the wheel — keep zooming in and the axis steps down through years → months → days → hours → minutes. <strong>Set default view</strong> saves the current pan+zoom; <strong>Default view</strong> restores it. Click a bar to fire the "open information" action.</p>
+
+  <div class="legend">
+    <span><span class="sw" style="background:var(--solid);opacity:1"></span> solid bar — certain span (range) / precise point</span>
+    <span><span class="sw" style="background:var(--faded);opacity:.35;height:5px"></span> whisker — precision reaching out of an endpoint</span>
+    <span>▮ click a bar → opens its information</span>
+  </div>
+  <div class="controls">
+    <button class="btn" id="panL" title="Move back in time">◀ Earlier</button>
+    <button class="btn" id="panR" title="Move forward in time">Later ▶</button>
+    <span style="width:10px"></span>
+    <button class="btn" id="zoomOut">− Zoom out</button>
+    <button class="btn" id="zoomIn">+ Zoom in</button>
+    <button class="btn" id="fit">Fit all</button>
+    <span style="width:10px"></span>
+    <button class="btn" id="setDefault" title="Save current pan + zoom as this timeline's default">☆ Set default view</button>
+    <button class="btn" id="toDefault" title="Restore the saved default view">Default view</button>
+    <span class="tl-info" id="viewInfo"></span>
+  </div>
+  <div class="tl-wrap">
+    <svg id="tl" viewBox="0 0 900 360" width="100%" role="img" aria-label="Sample timeline" tabindex="0" style="cursor:grab"></svg>
+  </div>
+  <div class="tl-info" id="clicked">No entry opened yet.</div>
+
+  <script>
+  (function () {
+    const Y = (y, mo=1, d=1, h=0, mi=0) => Date.UTC(y, mo-1, d, h, mi);
+    // Sample entries. core0/core1 present ⇒ range: solid bar over [core0,core1],
+    // faded whiskers out to lower (left) and upper (right). Whisker lengths differ
+    // because each endpoint has its own precision.
+    const entries = [
+      { id:'i1', title:'French Revolution', lower:Y(1789,6), core0:Y(1789,7,14), core1:Y(1799,11,9), upper:Y(1799,12), note:'range · day-precise both ends → sharp caps' },
+      { id:'i2', title:'The 1800s (decade)', lower:Y(1800), upper:Y(1810), note:'point · decade precision → one wide faded band' },
+      { id:'i3', title:'Napoleon crowned Emperor', lower:Y(1804,12,2), upper:Y(1804,12,3), note:'point · day precision' },
+      { id:'i4', title:'Peninsular War', lower:Y(1800), core0:Y(1810), core1:Y(1814,4,1), upper:Y(1814,6), note:'range · DECADE start (long left whisker) + month end (short right)' },
+      { id:'i5', title:'Congress of Vienna', lower:Y(1814,9), core0:Y(1814,11), core1:Y(1815,6,1), upper:Y(1815,7), note:'range · month precision both ends' },
+      { id:'i6', title:'Battle of Waterloo', lower:Y(1815,6,18,10,0), upper:Y(1815,6,18,22,0), note:'point · hour precision' },
+    ];
+
+    const svg = document.getElementById('tl');
+    const NS = 'http://www.w3.org/2000/svg';
+    const W = 900, PADX = 40, axisY = 300, laneH = 34, GAP = 6;
+
+    const dataLo = Math.min(...entries.map(e=>e.lower));
+    const dataHi = Math.max(...entries.map(e=>e.upper));
+    const dataMargin = (dataHi-dataLo)*0.06;
+    // The timeline's persisted default view: a start (left edge) + span (zoom).
+    // In the app these come from timelines.defaultStartMs / defaultSpanMs.
+    let defStart = dataLo - dataMargin, defSpan = (dataHi + dataMargin) - defStart;
+    let viewLo = defStart, viewHi = defStart + defSpan;
+
+    const x = ms => PADX + (ms - viewLo) / (viewHi - viewLo) * (W - 2*PADX);
+    const clampW = w => Math.max(w, 2);
+    function el(tag, attrs, parent){ const n=document.createElementNS(NS,tag); for(const k in attrs) n.setAttribute(k, attrs[k]); parent.appendChild(n); return n; }
+
+    const MS_DAY=864e5, MS_HR=36e5, MS_MIN=6e4, MS_YR=365.25*MS_DAY;
+    const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const yy = ms => String(new Date(ms).getUTCFullYear());
+
+    // Multi-scale ticks: choose a calendar unit from the visible span so months,
+    // then days, then hours, then minutes appear as the user zooms in.
+    function ticks(lo, hi){
+      const span=hi-lo, out=[], push=(ms,label,major)=>{ if(ms>=lo-1&&ms<=hi+1) out.push({ms,label,major}); };
+      if(span > 3*MS_YR){                                   // YEARS
+        const steps=[1,2,5,10,20,25,50,100,200,500,1000];
+        const step=steps.find(s=>s>=(span/MS_YR)/8)||1000;
+        const y0=Math.ceil(new Date(lo).getUTCFullYear()/step)*step;
+        for(let y=y0; Date.UTC(y,0,1)<=hi; y+=step) push(Date.UTC(y,0,1), String(y), y%(step*5)===0);
+      } else if(span > 110*MS_DAY){                         // MONTHS
+        const step = span>430*MS_DAY?3:1;
+        const d=new Date(lo); let y=d.getUTCFullYear(), m=Math.floor(d.getUTCMonth()/step)*step;
+        for(let ms=Date.UTC(y,m,1); ms<=hi; m+=step, ms=Date.UTC(y,m,1)){
+          const dd=new Date(ms), M=dd.getUTCMonth();
+          push(ms, M===0? `${MON[M]} '${yy(ms).slice(2)}` : MON[M], M===0);
+        }
+      } else if(span > 4*MS_DAY){                           // DAYS
+        const step = span>18*MS_DAY?7:(span>9*MS_DAY?2:1);
+        for(let ms=Math.floor(lo/MS_DAY)*MS_DAY; ms<=hi; ms+=step*MS_DAY){
+          const dd=new Date(ms), first=dd.getUTCDate()===1;
+          push(ms, first? `${MON[dd.getUTCMonth()]}` : `${dd.getUTCDate()} ${MON[dd.getUTCMonth()]}`, first);
+        }
+      } else if(span > 4*MS_HR){                            // HOURS
+        const step = span>36*MS_HR?6:(span>12*MS_HR?3:1);
+        for(let ms=Math.floor(lo/MS_HR)*MS_HR; ms<=hi; ms+=step*MS_HR){
+          const dd=new Date(ms), h=dd.getUTCHours(), mid=h===0;
+          push(ms, mid? `${dd.getUTCDate()} ${MON[dd.getUTCMonth()]}` : `${String(h).padStart(2,'0')}:00`, mid);
+        }
+      } else {                                              // MINUTES
+        const step = span>28*MS_MIN?15:(span>9*MS_MIN?5:1);
+        for(let ms=Math.floor(lo/MS_MIN)*MS_MIN; ms<=hi; ms+=step*MS_MIN){
+          const dd=new Date(ms);
+          push(ms, `${String(dd.getUTCHours()).padStart(2,'0')}:${String(dd.getUTCMinutes()).padStart(2,'0')}`, dd.getUTCMinutes()===0);
+        }
+      }
+      return out;
+    }
+
+    function render(){
+      svg.innerHTML='';
+      el('line',{x1:PADX,y1:axisY,x2:W-PADX,y2:axisY,stroke:'#111',"stroke-width":2}, svg);
+      ticks(viewLo, viewHi).forEach(tk=>{
+        const px=x(tk.ms); if(px<PADX-1||px>W-PADX+1) return;
+        el('line',{x1:px,y1:axisY,x2:px,y2:axisY+(tk.major?9:5),stroke:'#111',"stroke-width":tk.major?1.5:1}, svg);
+        const t=el('text',{x:px,y:axisY+22,"text-anchor":"middle","font-size":tk.major?11:10,"font-weight":tk.major?600:400,fill:tk.major?'#111827':'#6b7280'}, svg); t.textContent=tk.label;
+      });
+      const items = entries.map(e=>{
+        const labelW = e.title.length*6.5 + 10;
+        return {...e, leftPx:x(e.lower), rightPx:Math.max(x(e.upper), x(e.lower)+labelW)};
+      }).filter(e=> e.rightPx>PADX && e.leftPx<W-PADX)
+        .sort((a,b)=>a.leftPx-b.leftPx);
+
+      const laneEnds=[];
+      items.forEach(e=>{
+        let lane=laneEnds.findIndex(end=> end < e.leftPx - GAP);
+        if(lane===-1){ lane=laneEnds.length; laneEnds.push(0); }
+        laneEnds[lane]=e.rightPx; e.lane=lane;
+      });
+
+      items.forEach(e=>{
+        const y = axisY - (e.lane+1)*laneH;
+        const g = el('g',{class:'entry'}, svg); g.style.cursor='pointer';
+        // faded precision whisker — thin, mid-aligned, extends out of an endpoint
+        const whisker=(a,b)=> el('rect',{x:x(a),y:y+9,width:clampW(x(b)-x(a)),height:5,rx:2.5,fill:'var(--faded)','fill-opacity':0.35}, g);
+        // solid certain span — full height bar
+        const bar=(a,b)=> el('rect',{x:x(a),y:y+4,width:clampW(x(b)-x(a)),height:15,rx:3,fill:'var(--solid)','fill-opacity':1,class:'bar-solid'}, g);
+        if(e.core0!=null){
+          whisker(e.lower, e.core0);   // start precision, reaching left
+          whisker(e.core1, e.upper);   // end precision, reaching right
+          bar(e.core0, e.core1);       // certain span
+        } else {
+          whisker(e.lower, e.upper);   // point → faded window only
+        }
+        const t=el('text',{x:Math.max(x(e.lower),PADX)+3, y:y+1, class:'entry-label'}, g); t.textContent=e.title;
+        const tip=el('title',{},g); tip.textContent=`${e.title} — ${e.note}`;
+        g.addEventListener('click',()=>{ document.getElementById('clicked').textContent=`▸ Opening information view for "${e.title}" (id ${e.id})`; });
+      });
+
+      const span=viewHi-viewLo;
+      const unit = span>3*MS_YR?'years' : span>110*MS_DAY?'months' : span>4*MS_DAY?'days' : span>4*MS_HR?'hours' : 'minutes';
+      document.getElementById('viewInfo').textContent=`${yy(viewLo)} – ${yy(viewHi)} · scale: ${unit} · ${laneEnds.length} lane(s)`;
+    }
+
+    function zoom(factor){ const c=(viewLo+viewHi)/2, half=(viewHi-viewLo)*factor/2; viewLo=c-half; viewHi=c+half; render(); }
+    function pan(frac){ const d=(viewHi-viewLo)*frac; viewLo+=d; viewHi+=d; render(); }
+    document.getElementById('zoomIn').onclick=()=>zoom(0.6);
+    document.getElementById('zoomOut').onclick=()=>zoom(1/0.6);
+    document.getElementById('panL').onclick=()=>pan(-0.33);
+    document.getElementById('panR').onclick=()=>pan(0.33);
+    document.getElementById('fit').onclick=()=>{ viewLo=dataLo-dataMargin; viewHi=dataHi+dataMargin; render(); };
+    // default view (persisted per timeline as defaultStartMs / defaultSpanMs)
+    document.getElementById('setDefault').onclick=()=>{ defStart=viewLo; defSpan=viewHi-viewLo; document.getElementById('clicked').textContent='✔ Saved current view as this timeline’s default (PATCH defaultStartMs / defaultSpanMs).'; };
+    document.getElementById('toDefault').onclick=()=>{ viewLo=defStart; viewHi=defStart+defSpan; render(); };
+    svg.addEventListener('wheel',ev=>{ ev.preventDefault(); if(ev.shiftKey) pan((ev.deltaY>0?0.12:-0.12)); else zoom(ev.deltaY>0?1.15:1/1.15); },{passive:false});
+    svg.addEventListener('keydown',ev=>{ if(ev.key==='ArrowLeft'){pan(ev.shiftKey?-1:-0.2);ev.preventDefault();} if(ev.key==='ArrowRight'){pan(ev.shiftKey?1:0.2);ev.preventDefault();} });
+    // drag the background to slide through time
+    let dragX=null;
+    svg.addEventListener('pointerdown',ev=>{ dragX=ev.clientX; svg.setPointerCapture(ev.pointerId); svg.style.cursor='grabbing'; });
+    svg.addEventListener('pointermove',ev=>{ if(dragX==null) return; const dpx=ev.clientX-dragX; dragX=ev.clientX; const dms=-dpx/(svg.clientWidth||W)*(viewHi-viewLo); viewLo+=dms; viewHi+=dms; render(); });
+    svg.addEventListener('pointerup',ev=>{ dragX=null; svg.style.cursor='grab'; });
+    render();
+  })();
+  </script>
+
+  <p style="font-size:13px;color:var(--muted)">
+    In the sample: <em>Peninsular War</em> shows <strong>different precision at each end</strong> — a decade-precise start
+    throws a long faded whisker back to 1800, while its month-precise end has only a short whisker. <em>French Revolution</em>
+    is day-precise both ends, so its whiskers collapse to sharp caps on a solid bar. <em>The 1800s</em> is a fully-faded
+    decade point; <em>Waterloo</em> is a thin hour-precision point that overlaps the <em>Congress of Vienna</em> range and
+    stacks into a higher lane. Pan with ◀ ▶ / arrow keys / drag; every bar is clickable.
+  </p>
+
+  <h2 id="edge">9. Edge cases</h2>
+  <ul>
+    <li><strong>Reversed range</strong> (end before start): validate on save; offer to swap.</li>
+    <li><strong>Different precision per end</strong> (e.g. start precise to the day, end to the decade): handled by design — the right-hand whisker just grows to a decade while the left stays a sharp cap.</li>
+    <li><strong>Info with several datetimes on one timeline:</strong> each pinned datetime is its own bar, all sharing the same information title.</li>
+    <li><strong>Deleting information / datetime:</strong> cascade removes timeline entries (FK <code>onDelete: cascade</code>).</li>
+    <li><strong>Empty timeline / all entries off-screen:</strong> show an empty state and a "Fit all" nudge.</li>
+    <li><strong>Extreme zoom:</strong> clamp minimum window (e.g. one minute) and maximum (data span ×50) to avoid divide-by-tiny.</li>
+    <li><strong>Timezone:</strong> store and draw in UTC to keep bounds stable across users; display "UTC" on hover for sub-day precision.</li>
+  </ul>
+
+  <h2 id="testing">10. Testing <span class="tag">tests/</span></h2>
+  <ul>
+    <li><strong>Unit — <code>lib/datetimePrecision.ts</code>:</strong> value+precision → correct <code>[lower, upper]</code> for every level, including BC years and decade/century boundaries.</li>
+    <li><strong>Unit — lane packing:</strong> non-overlapping bars share a lane; overlaps stack; label width forces a new lane.</li>
+    <li><strong>Unit — adaptive ticks:</strong> the chosen unit steps from years → months → days → hours → minutes across shrinking spans, and ticks snap to calendar boundaries (month starts, midnight, top-of-hour).</li>
+    <li><strong>Server (Drizzle, Docker Postgres):</strong> create timeline, attach/detach datetime, cascade on info delete, project-scoping (can't attach cross-project info), and persist/read back <code>defaultStartMs</code> / <code>defaultSpanMs</code>.</li>
+    <li><strong>Playwright UI:</strong> Timeline button opens the view; create a timeline; add a dated info; assert a bar with the title appears; click it opens the information sidebar; zooming in reveals month/day/hour labels; "Set default view" then reload restores that pan+zoom.</li>
+    <li>Follow existing patterns: <code>db-helpers.ts</code> to seed, <code>injectOidcUser()</code> for auth.</li>
+  </ul>
+
+  <h2 id="phases">11. Suggested phases</h2>
+  <div class="phase"><b>Phase 1</b><span>Schema + <code>datetimePrecision.ts</code> + datetime CRUD API and unit tests. No UI yet.</span></div>
+  <div class="phase"><b>Phase 2</b><span>Datetime editor in <code>InformationSidebar</code> (point/range/precision + live preview).</span></div>
+  <div class="phase"><b>Phase 3</b><span>Timeline tables/API + <code>TimelineView</code> shell, left rail, create/list, top-right entry button.</span></div>
+  <div class="phase"><b>Phase 4</b><span>Canvas: axis, adaptive ticks, solid-bar-plus-whisker drawing, lane packing, and the zoom + pan controls (§6.3.1).</span></div>
+  <div class="phase"><b>Phase 5</b><span>Add-information picker, click-through to information view, empty states, polish, Playwright coverage.</span></div>
+
+  <footer>
+    Plan generated for the DocuScope timeline feature · uses the existing <code>information</code> table and the
+    client/server library split (<code>lib/*.ts</code> + <code>lib/*.server.ts</code>). Open this file in a browser to try the sample.
+  </footer>
+</main>
+
+<script>
+// ---- Interactive mock of the datetime entry element (§6.4) ----
+(function () {
+  const host = document.getElementById('entry-mock');
+  if (!host) return;
+
+  const PREC = ['minute','hour','day','month','year','decade','century'];
+  // which raw fields each precision exposes
+  const FIELDS = {
+    minute: ['yr','mo','d','h','mi'], hour: ['yr','mo','d','h'], day: ['yr','mo','d'],
+    month: ['yr','mo'], year: ['yr'], decade: ['dec'], century: ['cen'],
+  };
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  const state = {
+    isRange: true,
+    start: { prec:'decade', yr:1980, mo:1, d:1, h:0, mi:0, dec:1980, cen:1800, era:'AD' },
+    end:   { prec:'month',  yr:1995, mo:3, d:1, h:0, mi:0, dec:1990, cen:1900, era:'AD' },
+  };
+
+  // bounds (epoch ms) for one endpoint, mirroring the precision table
+  function bounds(ep){
+    const y = ep.era==='BC' ? 1-ep.yr : ep.yr;
+    const U = (yy,mo=1,d=1,h=0,mi=0)=>Date.UTC(yy,mo-1,d,h,mi);
+    switch(ep.prec){
+      case 'minute': return [U(y,ep.mo,ep.d,ep.h,ep.mi), U(y,ep.mo,ep.d,ep.h,ep.mi+1)];
+      case 'hour':   return [U(y,ep.mo,ep.d,ep.h),        U(y,ep.mo,ep.d,ep.h+1)];
+      case 'day':    return [U(y,ep.mo,ep.d),             U(y,ep.mo,ep.d+1)];
+      case 'month':  return [U(y,ep.mo),                  U(y,ep.mo+1)];
+      case 'year':   return [U(y),                        U(y+1)];
+      case 'decade': { const s=Math.floor(ep.dec/10)*10; return [U(s), U(s+10)]; }
+      case 'century':{ const s=Math.floor(ep.cen/100)*100; return [U(s), U(s+100)]; }
+    }
+  }
+  function human(ep){
+    switch(ep.prec){
+      case 'minute': return `${ep.d} ${MONTHS[ep.mo-1]} ${ep.yr} ${String(ep.h).padStart(2,'0')}:${String(ep.mi).padStart(2,'0')} ${ep.era}`;
+      case 'hour':   return `${ep.d} ${MONTHS[ep.mo-1]} ${ep.yr}, ${String(ep.h).padStart(2,'0')}:00 ${ep.era}`;
+      case 'day':    return `${ep.d} ${MONTHS[ep.mo-1]} ${ep.yr} ${ep.era}`;
+      case 'month':  return `${MONTHS[ep.mo-1]} ${ep.yr} ${ep.era}`;
+      case 'year':   return `${ep.yr} ${ep.era}`;
+      case 'decade': return `the ${Math.floor(ep.dec/10)*10}s`;
+      case 'century':return `the ${Math.floor(ep.cen/100)*100}s`;
+    }
+  }
+
+  function segmented(current, onPick){
+    const wrap = document.createElement('div'); wrap.className='seg';
+    PREC.forEach(p=>{
+      const b=document.createElement('button'); b.textContent=p[0].toUpperCase()+p.slice(1);
+      b.setAttribute('aria-pressed', p===current);
+      b.onclick=()=>onPick(p); wrap.appendChild(b);
+    });
+    return wrap;
+  }
+
+  function inputsFor(ep, onChange){
+    const box=document.createElement('div'); box.className='inputs';
+    const add=(key,label,val,cls)=>{
+      if(label){ const s=document.createElement('span'); s.style.fontSize='12px'; s.style.color='var(--muted)'; s.textContent=label; box.appendChild(s); }
+      const i=document.createElement('input'); i.type='number'; if(cls) i.className=cls; i.value=val;
+      i.oninput=()=>{ ep[key]=parseInt(i.value||'0',10); onChange(); }; box.appendChild(i);
+    };
+    FIELDS[ep.prec].forEach(f=>{
+      if(f==='yr'){ add('yr','Year',ep.yr,'yr'); addEra(); }
+      else if(f==='mo'){ add('mo','Mon',ep.mo); }
+      else if(f==='d'){ add('d','Day',ep.d); }
+      else if(f==='h'){ add('h','Hr',ep.h); }
+      else if(f==='mi'){ add('mi','Min',ep.mi); }
+      else if(f==='dec'){ add('dec','Decade',ep.dec,'yr'); addEra(); }
+      else if(f==='cen'){ add('cen','Century',ep.cen,'yr'); addEra(); }
+    });
+    function addEra(){ const sel=document.createElement('select'); ['AD','BC'].forEach(e=>{const o=document.createElement('option');o.textContent=e;o.selected=ep.era===e;sel.appendChild(o);}); sel.onchange=()=>{ep.era=sel.value;onChange();}; box.appendChild(sel); }
+    return box;
+  }
+
+  function endpointBlock(ep, caption, onChange){
+    const wrap=document.createElement('div'); wrap.className='endpoint';
+    const cap=document.createElement('div'); cap.className='cap'; cap.textContent=caption; wrap.appendChild(cap);
+    wrap.appendChild(segmented(ep.prec, p=>{ ep.prec=p; onChange(); }));
+    wrap.appendChild(inputsFor(ep, onChange));
+    return wrap;
+  }
+
+  function previewSvg(){
+    const NS='http://www.w3.org/2000/svg';
+    const svg=document.createElementNS(NS,'svg'); svg.setAttribute('viewBox','0 0 380 40'); svg.setAttribute('width','100%'); svg.style.display='block';
+    const s=bounds(state.start), e=state.isRange?bounds(state.end):s;
+    const lo=Math.min(s[0],e[0]), hi=Math.max(s[1],e[1]);
+    const span=(hi-lo)||1, m=span*0.08, LO=lo-m, HI=hi+m;
+    const X=ms=>4+(ms-LO)/(HI-LO)*372;
+    const rect=(a,b,y,h,op,solid)=>{const r=document.createElementNS(NS,'rect');r.setAttribute('x',X(a));r.setAttribute('y',y);r.setAttribute('width',Math.max(X(b)-X(a),2));r.setAttribute('height',h);r.setAttribute('rx',3);r.setAttribute('fill','var(--accent)');r.setAttribute('fill-opacity',op);svg.appendChild(r);};
+    if(state.isRange){
+      rect(s[0],s[1],17,5,0.35);          // start whisker (out-left)
+      rect(e[0],e[1],17,5,0.35);          // end whisker (out-right)
+      rect(s[1],e[0],12,15,1,true);       // solid certain span
+    } else {
+      rect(s[0],s[1],14,11,0.35);         // point band
+    }
+    return svg;
+  }
+
+  function sentence(){
+    if(!state.isRange) return `Point · ${human(state.start)} — drawn as a faded band across its whole precision window.`;
+    return `Range · ${human(state.start)} → ${human(state.end)}. Solid where certain; the start's precision (${state.start.prec}) reaches out to the left, the end's (${state.end.prec}) to the right — independently.`;
+  }
+
+  function draw(){
+    host.innerHTML='';
+    const card=document.createElement('div'); card.className='dte'; host.appendChild(card);
+    card.innerHTML='<h4>Add date</h4>';
+
+    // point/range toggle
+    const tf=document.createElement('div'); tf.className='field';
+    tf.innerHTML='<label class="lbl">Kind</label>';
+    const tseg=document.createElement('div'); tseg.className='seg';
+    [['Point',false],['Range',true]].forEach(([t,v])=>{ const b=document.createElement('button'); b.textContent=t; b.setAttribute('aria-pressed',state.isRange===v); b.onclick=()=>{state.isRange=v;draw();}; tseg.appendChild(b); });
+    tf.appendChild(tseg); card.appendChild(tf);
+
+    // endpoint(s)
+    const ef=document.createElement('div'); ef.className='field';
+    ef.appendChild(endpointBlock(state.start, state.isRange?'Start':'When', draw));
+    if(state.isRange) ef.appendChild(endpointBlock(state.end,'End', draw));
+    card.appendChild(ef);
+
+    // preview
+    const pv=document.createElement('div'); pv.className='preview';
+    const pl=document.createElement('label'); pl.className='lbl'; pl.textContent='Preview (as it will draw)'; pv.appendChild(pl);
+    pv.appendChild(previewSvg());
+    const sen=document.createElement('div'); sen.className='sentence'; sen.textContent=sentence(); pv.appendChild(sen);
+    card.appendChild(pv);
+
+    // actions
+    const ac=document.createElement('div'); ac.className='actions';
+    ac.innerHTML='<button class="btn">Cancel</button><button class="btn primary">Save date</button>';
+    card.appendChild(ac);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>
