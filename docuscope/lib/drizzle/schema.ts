@@ -3,6 +3,7 @@ import {
   text,
   uuid,
   bigint,
+  boolean,
   integer,
   char,
   doublePrecision,
@@ -355,6 +356,77 @@ export const informationFieldVersions = pgTable(
       t.createdAt,
     ),
   ],
+);
+
+// ── Timeline feature ───────────────────────────────────────────────────────────
+
+// A datetime attached to a piece of information. Point or range; each endpoint
+// carries its own precision (minute|hour|day|month|year|decade|century). The
+// lower/upper bounds are derived on write (epoch ms, signed bigint, proleptic
+// Gregorian) by lib/datetimePrecision.ts so the timeline can draw with pure
+// integer math. There is no label column — the timeline uses the parent
+// information's title. Rows cascade-delete with their information.
+export const informationDatetimes = pgTable(
+  'information_datetimes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    informationId: uuid('information_id')
+      .notNull()
+      .references(() => information.id, { onDelete: 'cascade' }),
+    isRange: boolean('is_range').notNull().default(false),
+
+    // raw input, kept for editing/display
+    startValue: text('start_value').notNull(), // ISO-ish canonical string
+    startPrecision: text('start_precision').notNull(), // minute|hour|day|month|year|decade|century
+    endValue: text('end_value'), // null when !isRange
+    endPrecision: text('end_precision'),
+
+    // derived bounds (epoch ms, proleptic Gregorian) — what the timeline draws
+    lowerMs: bigint('lower_ms', { mode: 'bigint' }).notNull(), // start.lower
+    upperMs: bigint('upper_ms', { mode: 'bigint' }).notNull(), // end.upper (or start.upper for a point)
+    coreLowerMs: bigint('core_lower_ms', { mode: 'bigint' }), // start.upper (range only)
+    coreUpperMs: bigint('core_upper_ms', { mode: 'bigint' }), // end.lower   (range only)
+  },
+  (t) => [
+    index('info_datetimes_info_idx').on(t.informationId),
+    index('info_datetimes_bounds_idx').on(t.lowerMs, t.upperMs),
+  ],
+);
+
+// A named timeline within a project. `defaultStartMs` is the left edge of the
+// default view and `defaultSpanMs` its window width (the default zoom); both
+// null ⇒ fall back to fit-all when the timeline is opened.
+export const timelines = pgTable(
+  'timelines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    defaultStartMs: bigint('default_start_ms', { mode: 'bigint' }),
+    defaultSpanMs: bigint('default_span_ms', { mode: 'bigint' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => [index('timelines_project_idx').on(t.projectId)],
+);
+
+// Which information (via a specific datetime) sits on which timeline. Pinning a
+// datetime — not just an information — lets an info with several datetimes place
+// each one, or the same info on several timelines. Rows cascade-delete with
+// either the timeline or the datetime.
+export const timelineEntries = pgTable(
+  'timeline_entries',
+  {
+    timelineId: uuid('timeline_id')
+      .notNull()
+      .references(() => timelines.id, { onDelete: 'cascade' }),
+    datetimeId: uuid('datetime_id')
+      .notNull()
+      .references(() => informationDatetimes.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.timelineId, t.datetimeId] })],
 );
 
 // One draft per (file, user). Drafts are write-and-read-by-key only — no
