@@ -273,11 +273,12 @@ export default function ProjectView({
   // and selections together (issue #78).
   const draft = useFileDraft(project.id, selectedFile);
 
-  // Open a piece of information from a timeline entry. Clear the folder filter
-  // and search so the target file is present in the (reloaded) file list, then
-  // open its information sidebar with the clicked entry pre-selected.
+  // Open a piece of information from a timeline entry. The timeline stays open;
+  // the information sidebar is raised on top of it (see `elevated` below). Clear
+  // the folder filter and search so the target file is present in the (reloaded)
+  // file list, then open its information sidebar with the clicked entry
+  // pre-selected.
   function openInformationFromTimeline(fileId: string, informationId: string) {
-    setTimelineOpen(false);
     setSelectedFolderId(null);
     setSearchQuery("");
     setSelectedLabelIds(new Set());
@@ -302,7 +303,10 @@ export default function ProjectView({
         </h1>
         <button
           type="button"
-          onClick={() => setTimelineOpen(true)}
+          onClick={() => {
+            setInformationOpen(false);
+            setTimelineOpen(true);
+          }}
           className="ml-auto flex h-9 items-center justify-center rounded-full border border-solid border-black/[.08] px-4 text-sm font-medium transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
         >
           Timeline
@@ -359,6 +363,7 @@ export default function ProjectView({
             lock={lock}
             draft={draft}
             initialSelectedId={pendingInfoId}
+            elevated={timelineOpen}
             canOpenPdf={isPdf(selectedFile.filename)}
             onOpenPdfViewer={(infoId) => {
               setPdfViewerInfoId(infoId);

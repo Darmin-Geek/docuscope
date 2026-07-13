@@ -76,6 +76,10 @@ type InformationSidebarProps = {
   // (no absolute positioning, no shadow, no header close button) so it can sit
   // as the left panel inside the PDF viewer modal.
   variant?: "overlay" | "embedded";
+  // When the overlay is shown on top of a full-screen layer (the timeline
+  // workspace), raise it above that layer and anchor it flush to the right edge
+  // so it reads as a panel over the timeline rather than the project table.
+  elevated?: boolean;
   // Preselect an entry on mount (used by the PDF viewer to open the item the
   // user came in on). Applied once.
   initialSelectedId?: string | null;
@@ -94,6 +98,7 @@ export default function InformationSidebar({
   onOpenPdfViewer,
   onClose,
   variant = "overlay",
+  elevated = false,
   initialSelectedId = null,
   onSelectedIdChange,
 }: InformationSidebarProps) {
@@ -386,8 +391,12 @@ export default function InformationSidebar({
         embedded
           ? // Embedded in the PDF viewer modal: a plain full-height left column.
             "flex h-full w-[28rem] shrink-0 flex-col border-r border-black/[.08] bg-zinc-50 dark:border-white/[.145] dark:bg-black"
-          : // Overlay used in ProjectView: absolutely positioned over the table.
-            "absolute inset-y-0 right-96 z-10 flex w-[28rem] flex-col border-l border-r border-black/[.08] bg-zinc-50 shadow-xl dark:border-white/[.145] dark:bg-black"
+          : elevated
+            ? // Raised over the full-screen timeline: flush to the right edge and
+              // above the timeline layer (z-20).
+              "absolute inset-y-0 right-0 z-30 flex w-[28rem] flex-col border-l border-black/[.08] bg-zinc-50 shadow-xl dark:border-white/[.145] dark:bg-black"
+            : // Overlay used in ProjectView: absolutely positioned over the table.
+              "absolute inset-y-0 right-96 z-10 flex w-[28rem] flex-col border-l border-r border-black/[.08] bg-zinc-50 shadow-xl dark:border-white/[.145] dark:bg-black"
       }
     >
       <header className="flex items-start justify-between gap-2 border-b border-black/[.08] p-4 dark:border-white/[.145]">
