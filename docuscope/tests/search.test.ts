@@ -44,6 +44,17 @@ test.describe("chunkText", () => {
 // These call getFiles() directly against the test database without a browser.
 
 test.describe("getFiles — full-text search", () => {
+  test("matches on filename", async () => {
+    const projectId = await createTestProject();
+    const fileId = await createTestFile(projectId, { filename: "apollo.pdf" });
+    await createTestFile(projectId, { filename: "other.pdf" });
+
+    const results = await getFiles(projectId, null, "apollo");
+
+    expect(results.map((f) => f.id)).toContain(fileId);
+    expect(results).toHaveLength(1);
+  });
+
   test("matches on author field", async () => {
     const projectId = await createTestProject();
     const fileId = await createTestFile(projectId, {

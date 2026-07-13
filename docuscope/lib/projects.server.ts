@@ -1,5 +1,5 @@
 import { db } from './drizzle/db';
-import { eq, and, or, inArray, isNull, lt, desc, getTableColumns, sql, type SQL } from 'drizzle-orm';
+import { eq, and, or, ilike, inArray, isNull, lt, desc, getTableColumns, sql, type SQL } from 'drizzle-orm';
 import {
   projects,
   projectContributors,
@@ -377,7 +377,10 @@ function ftsCondition(q: string, fields?: SearchField[]) {
   const enabled = new Set(fields ?? []);
   const on = (f: SearchField) => searchAll || enabled.has(f);
 
-  const parts: SQL[] = [];
+  // Filename isn't part of the scoped SearchField model — it's always visible
+  // in the table, so it should always be matchable regardless of which scope
+  // toggles are on.
+  const parts: SQL[] = [ilike(filesTable.filename, `%${q}%`)];
 
   const metaCols = META_KEYS.filter(on).map((k) => META_TSV[k]);
   if (metaCols.length > 0) {

@@ -253,23 +253,43 @@ export default function TimelineView({
     if (!selectedId) return;
     setError(null);
     try {
+      const wasEmpty = entries.length === 0;
       await addTimelineEntry(projectId, selectedId, datetimeId);
-      await loadEntries(selectedId);
+      const rows = await loadEntries(selectedId);
+      // A timeline with no prior entries has no data to frame the default view
+      // around, so it falls back to "now ± 5yr". Bring the first pinned entry
+      // into view instead of leaving it off-screen with no visual feedback.
+      if (wasEmpty && rows.length > 0) {
+        const lo = Math.min(...rows.map((e) => e.lowerMs));
+        const hi = Math.max(...rows.map((e) => e.upperMs));
+        const margin = (hi - lo) * 0.06 || 365 * 24 * 3600 * 1000;
+        setView({ lo: lo - margin, hi: hi + margin });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add entry.");
     }
   }
 
   // ── drag-to-pan ───────────────────────────────────────────────────────────────
-  const dragRef = useRef<number | null>(null);
+  // Pointer capture is deferred until the pointer actually moves past a small
+  // threshold: capturing eagerly on pointerdown causes Chromium to retarget the
+  // synthesized click event to the <svg> itself, which silently swallows plain
+  // clicks on bars (they'd never reach the bar's own onClick).
+  const DRAG_THRESHOLD_PX = 3;
+  const dragRef = useRef<{ x: number; pointerId: number; captured: boolean } | null>(null);
   function onPointerDown(ev: ReactPointerEvent<SVGSVGElement>) {
-    dragRef.current = ev.clientX;
-    ev.currentTarget.setPointerCapture(ev.pointerId);
+    dragRef.current = { x: ev.clientX, pointerId: ev.pointerId, captured: false };
   }
   function onPointerMove(ev: ReactPointerEvent<SVGSVGElement>) {
-    if (dragRef.current == null) return;
-    const dpx = ev.clientX - dragRef.current;
-    dragRef.current = ev.clientX;
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== ev.pointerId) return;
+    const dpx = ev.clientX - drag.x;
+    if (!drag.captured) {
+      if (Math.abs(dpx) < DRAG_THRESHOLD_PX) return;
+      drag.captured = true;
+      ev.currentTarget.setPointerCapture(ev.pointerId);
+    }
+    drag.x = ev.clientX;
     const width = svgRef.current?.clientWidth || VB_W;
     setView((v) => {
       if (!v) return v;
@@ -278,8 +298,9 @@ export default function TimelineView({
     });
   }
   function onPointerUp(ev: ReactPointerEvent<SVGSVGElement>) {
+    const drag = dragRef.current;
+    if (drag?.captured) ev.currentTarget.releasePointerCapture(ev.pointerId);
     dragRef.current = null;
-    ev.currentTarget.releasePointerCapture(ev.pointerId);
   }
   function onWheel(ev: ReactWheelEvent<SVGSVGElement>) {
     if (ev.shiftKey) pan(ev.deltaY > 0 ? 0.12 : -0.12);
@@ -686,11 +707,17 @@ function AddInformationPicker({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-information-picker-title"
         className="flex max-h-[80vh] w-[32rem] flex-col rounded-lg border border-black/[.08] bg-white shadow-2xl dark:border-white/[.145] dark:bg-zinc-900"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-black/[.08] p-4 dark:border-white/[.145]">
-          <h3 className="text-sm font-semibold text-black dark:text-zinc-50">
+          <h3
+            id="add-information-picker-title"
+            className="text-sm font-semibold text-black dark:text-zinc-50"
+          >
             Add information to timeline
           </h3>
           <button

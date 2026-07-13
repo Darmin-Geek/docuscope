@@ -54,9 +54,12 @@ test("timeline view: create, add dated info, see bar, click through", async ({
 
   // Pin the dated information through the picker.
   await page.getByRole("button", { name: "+ Add information" }).click();
-  await page.getByLabel("Search files").fill("apollo");
-  await page.getByRole("button", { name: "apollo.pdf" }).click();
-  await page.getByRole("button", { name: "Add", exact: true }).click();
+  const picker = page.getByRole("dialog", {
+    name: "Add information to timeline",
+  });
+  await picker.getByLabel("Search files").fill("apollo");
+  await picker.getByRole("button", { name: "apollo.pdf" }).click();
+  await picker.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
   await page.getByRole("button", { name: "Close picker" }).click();
 
