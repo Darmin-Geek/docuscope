@@ -54,7 +54,6 @@
     "drizzle-kit": "^0.31.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
-    "lightningcss-linux-x64-gnu": "^1.32.0",
     "playwright": "^1.60.0",
     "postcss-lightningcss": "^1.1.0",
     "tailwindcss": "^4",

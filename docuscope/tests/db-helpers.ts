@@ -7,8 +7,15 @@ import {
   fileFolders,
   fileChunks,
   information,
+  informationDatetimes,
+  timelines,
+  timelineEntries,
 } from '../lib/drizzle/schema';
 import { eq } from 'drizzle-orm';
+import {
+  deriveBoundsFromRaw,
+  type Precision,
+} from '../lib/datetimePrecision';
 
 /** Create a minimal project record and return its UUID id. */
 export async function createTestProject(title = 'Test Project'): Promise<string> {
@@ -94,6 +101,73 @@ export async function createTestInformation(
     })
     .returning({ id: information.id });
   return row.id;
+}
+
+/**
+ * Create a datetime on a piece of information, deriving its epoch-ms bounds the
+ * same way the server does. Defaults to a year-precision point. Returns the id.
+ */
+export async function createTestDatetime(
+  informationId: string,
+  options: {
+    isRange?: boolean;
+    startValue?: string;
+    startPrecision?: Precision;
+    endValue?: string | null;
+    endPrecision?: Precision | null;
+  } = {},
+): Promise<string> {
+  const isRange = options.isRange ?? false;
+  const startValue = options.startValue ?? '1969-01-01T00:00';
+  const startPrecision = options.startPrecision ?? 'year';
+  const endValue = isRange ? options.endValue ?? null : null;
+  const endPrecision = isRange ? options.endPrecision ?? null : null;
+  const bounds = deriveBoundsFromRaw({
+    isRange,
+    startValue,
+    startPrecision,
+    endValue,
+    endPrecision,
+  });
+  const [row] = await db
+    .insert(informationDatetimes)
+    .values({
+      informationId,
+      isRange,
+      startValue,
+      startPrecision,
+      endValue,
+      endPrecision,
+      lowerMs: bounds.lowerMs,
+      upperMs: bounds.upperMs,
+      coreLowerMs: bounds.coreLowerMs,
+      coreUpperMs: bounds.coreUpperMs,
+    })
+    .returning({ id: informationDatetimes.id });
+  return row.id;
+}
+
+/** Create a timeline in a project. Returns its id. */
+export async function createTestTimeline(
+  projectId: string,
+  title = 'Test Timeline',
+): Promise<string> {
+  const [row] = await db
+    .insert(timelines)
+    .values({ projectId, title, createdAt: Date.now() })
+    .returning({ id: timelines.id });
+  return row.id;
+}
+
+/** Pin a datetime to a timeline. */
+export async function addTestTimelineEntry(
+  timelineId: string,
+  datetimeId: string,
+): Promise<void> {
+  await db
+    .insert(timelineEntries)
+    .values({ timelineId, datetimeId })
+    .onConflictDoNothing();
 }
 
 /** Create a folder with the given subfile ids pre-populated. Returns the folder id. */

@@ -1,5 +1,5 @@
 import { db } from './drizzle/db';
-import { eq, and, or, inArray, isNull, lt, desc, getTableColumns, sql, type SQL } from 'drizzle-orm';
+import { eq, and, or, ilike, inArray, isNull, lt, desc, getTableColumns, sql, type SQL } from 'drizzle-orm';
 import {
   projects,
   projectContributors,
@@ -19,6 +19,7 @@ import {
   type FileDraftSnapshot,
 } from './drizzle/schema';
 import { getUidForEmail } from './users.server';
+import { htmlOrNull } from './richText';
 import type { SearchField } from './searchScope';
 import { getCognitoProfile } from './cognito';
 import { validateDraftForSubmit } from './draftValidation';
@@ -376,7 +377,10 @@ function ftsCondition(q: string, fields?: SearchField[]) {
   const enabled = new Set(fields ?? []);
   const on = (f: SearchField) => searchAll || enabled.has(f);
 
-  const parts: SQL[] = [];
+  // Filename isn't part of the scoped SearchField model — it's always visible
+  // in the table, so it should always be matchable regardless of which scope
+  // toggles are on.
+  const parts: SQL[] = [ilike(filesTable.filename, `%${q}%`)];
 
   const metaCols = META_KEYS.filter(on).map((k) => META_TSV[k]);
   if (metaCols.length > 0) {
@@ -674,7 +678,7 @@ export async function updateFileMetadata(
 ): Promise<void> {
   await db
     .update(filesTable)
-    .set(metadata)
+    .set(sanitizeFileMetadata(metadata))
     .where(and(eq(filesTable.id, fileId), eq(filesTable.projectId, projectId)));
 }
 
@@ -760,16 +764,17 @@ export async function addInformation(
   fields: InformationFields,
   id?: string,
 ): Promise<string> {
+  const clean = sanitizeInformationFields(fields);
   if (id) {
     await db
       .insert(informationTable)
-      .values({ id, fileId, ...fields })
+      .values({ id, fileId, ...clean })
       .onConflictDoNothing();
     return id;
   }
   const [row] = await db
     .insert(informationTable)
-    .values({ fileId, ...fields })
+    .values({ fileId, ...clean })
     .returning({ id: informationTable.id });
   return row.id;
 }
@@ -782,7 +787,7 @@ export async function updateInformation(
 ): Promise<void> {
   await db
     .update(informationTable)
-    .set(fields)
+    .set(sanitizeInformationFields(fields))
     .where(
       and(
         eq(informationTable.id, informationId),
@@ -941,6 +946,51 @@ const FILE_VERSIONED_FIELDS = [
   'fileCredibilityCode',
 ] as const;
 
+// The paragraph fields that carry sanitised HTML (issue #81). Client sanitisation
+// protects honest clients; a crafted request could still send raw markup, so the
+// server re-sanitises these on every write with the same allow-list. Single-line
+// fields (author/title), Admiralty codes, and created_date are never HTML.
+const FILE_RICH_FIELDS = [
+  'source',
+  'overallBias',
+  'fileReliability',
+  'fileCredibility',
+] as const;
+
+const INFORMATION_RICH_FIELDS = [
+  'informationText',
+  'overallBias',
+  'informationReliability',
+  'informationCredibility',
+] as const;
+
+// Return a copy of the file metadata with its rich fields sanitised (empty
+// markup collapsed to null), leaving every non-HTML field untouched.
+function sanitizeFileMetadata<T extends Record<string, unknown>>(metadata: T): T {
+  const next = { ...metadata };
+  for (const field of FILE_RICH_FIELDS) {
+    if (field in next) {
+      (next as Record<string, unknown>)[field] = htmlOrNull(
+        next[field] as string | null,
+      );
+    }
+  }
+  return next;
+}
+
+// As above for a piece of information's editable fields.
+function sanitizeInformationFields<T extends Record<string, unknown>>(fields: T): T {
+  const next = { ...fields };
+  for (const field of INFORMATION_RICH_FIELDS) {
+    if (field in next) {
+      (next as Record<string, unknown>)[field] = htmlOrNull(
+        next[field] as string | null,
+      );
+    }
+  }
+  return next;
+}
+
 const INFORMATION_VERSIONED_FIELDS = [
   'informationTitle',
   'informationText',
@@ -1094,6 +1144,19 @@ export async function submitDraft(
   const invalid = validateDraftForSubmit(snapshot);
   if (invalid) throw new Error('Invalid');
 
+  // Sanitise the rich-text fields (issue #81) once, up front, so the field diff,
+  // the persisted rows, and the recorded version history all use clean HTML.
+  const cleanMetadata = sanitizeFileMetadata(snapshot.metadata);
+  const cleanInformation = snapshot.information.map((info) => ({
+    ...info,
+    ...sanitizeInformationFields({
+      informationText: info.informationText,
+      overallBias: info.overallBias,
+      informationReliability: info.informationReliability,
+      informationCredibility: info.informationCredibility,
+    }),
+  }));
+
   // One timestamp for the whole submit; every version row it writes shares it.
   const now = Date.now();
 
@@ -1106,11 +1169,11 @@ export async function submitDraft(
       .where(and(eq(filesTable.id, fileId), eq(filesTable.projectId, projectId)));
     if (currentFile) {
       const fileVersions = FILE_VERSIONED_FIELDS.filter(
-        (f) => !valuesEqual(currentFile[f], snapshot.metadata[f]),
+        (f) => !valuesEqual(currentFile[f], cleanMetadata[f]),
       ).map((f) => ({
         fileId,
         field: f,
-        value: toVersionText(snapshot.metadata[f]),
+        value: toVersionText(cleanMetadata[f]),
         editorUid: uid,
         editorName,
         createdAt: now,
@@ -1121,11 +1184,11 @@ export async function submitDraft(
     }
     await tx
       .update(filesTable)
-      .set(snapshot.metadata)
+      .set(cleanMetadata)
       .where(and(eq(filesTable.id, fileId), eq(filesTable.projectId, projectId)));
 
     // (2) information — delete rows no longer in the snapshot, then upsert.
-    const keepInfoIds = snapshot.information.map((i) => i.id);
+    const keepInfoIds = cleanInformation.map((i) => i.id);
     // Full current rows (not just ids) so we can diff each field for history.
     const existingInfo = await tx
       .select()
@@ -1148,7 +1211,7 @@ export async function submitDraft(
         );
     }
 
-    for (const info of snapshot.information) {
+    for (const info of cleanInformation) {
       const fields = {
         informationTitle: info.informationTitle,
         informationText: info.informationText,

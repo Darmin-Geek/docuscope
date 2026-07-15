@@ -24,3 +24,49 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Rich-text fields (issue #81). Tailwind's preflight resets list styling and
+   margins, so restore just enough for the allow-listed tags to read as prose
+   inside the compact sidebar boxes and the version-history popover. Shared by
+   the read-only <RichText> renderer and the <RichTextEditor> editing surface. */
+.rich-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-text p {
+  margin: 0 0 0.4em;
+}
+.rich-text p:last-child {
+  margin-bottom: 0;
+}
+.rich-text ul,
+.rich-text ol {
+  margin: 0.2em 0;
+  padding-left: 1.25rem;
+}
+.rich-text ul {
+  list-style: disc;
+}
+.rich-text ol {
+  list-style: decimal;
+}
+.rich-text li {
+  margin: 0.1em 0;
+}
+.rich-text a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+.rich-text u {
+  text-decoration: underline;
+}
+.rich-text s {
+  text-decoration: line-through;
+}
+
+/* Placeholder for the empty editor, shown only while it holds no visible text. */
+.rich-editor [data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+}

@@ -23,6 +23,29 @@ import LabelPill from "./LabelPill";
 import AdmiraltyCodeSelect from "./AdmiraltyCodeSelect";
 import { useFieldHistory } from "./useFieldHistory";
 import FieldHistoryButton from "./FieldHistoryButton";
+import RichTextEditor from "./RichTextEditor";
+import { htmlOrNull } from "@/lib/richText";
+import DatetimeEditor from "./DatetimeEditor";
+import {
+  getDatetimes,
+  addDatetime,
+  updateDatetime,
+  deleteDatetime,
+  type InformationDatetime,
+  type DatetimeInputPayload,
+} from "@/lib/timelines";
+import { humanDatetime, valueToParts } from "@/lib/datetimePrecision";
+
+// One-line human summary of a stored datetime, e.g. "the 1980s → Mar 1995".
+function datetimeSummary(dt: InformationDatetime): string {
+  return humanDatetime({
+    isRange: dt.isRange,
+    start: valueToParts(dt.startValue),
+    startPrecision: dt.startPrecision,
+    end: dt.isRange && dt.endValue ? valueToParts(dt.endValue) : undefined,
+    endPrecision: dt.isRange ? dt.endPrecision ?? undefined : undefined,
+  });
+}
 
 // One entry in the working draft's information list, including its staged
 // selections. The editor shows/edits the Information fields; selections are
@@ -53,6 +76,10 @@ type InformationSidebarProps = {
   // (no absolute positioning, no shadow, no header close button) so it can sit
   // as the left panel inside the PDF viewer modal.
   variant?: "overlay" | "embedded";
+  // When the overlay is shown on top of a full-screen layer (the timeline
+  // workspace), raise it above that layer and anchor it flush to the right edge
+  // so it reads as a panel over the timeline rather than the project table.
+  elevated?: boolean;
   // Preselect an entry on mount (used by the PDF viewer to open the item the
   // user came in on). Applied once.
   initialSelectedId?: string | null;
@@ -60,13 +87,6 @@ type InformationSidebarProps = {
   // "active information" in sync (the PDF viewer marks selections against it).
   onSelectedIdChange?: (id: string | null) => void;
 };
-
-// A blank field is stored as "unset" (null) rather than an empty string. The
-// raw value is otherwise kept verbatim so the controlled input can hold
-// interior/trailing spaces while the user is still typing (mirrors FileSidebar).
-function emptyToNull(value: string): string | null {
-  return value.length > 0 ? value : null;
-}
 
 export default function InformationSidebar({
   projectId,
@@ -78,6 +98,7 @@ export default function InformationSidebar({
   onOpenPdfViewer,
   onClose,
   variant = "overlay",
+  elevated = false,
   initialSelectedId = null,
   onSelectedIdChange,
 }: InformationSidebarProps) {
@@ -149,6 +170,17 @@ export default function InformationSidebar({
 
   // The entry awaiting delete confirmation, or null when the modal is closed.
   const [deleteTarget, setDeleteTarget] = useState<DraftInformation | null>(null);
+
+  // Datetimes attached to the selected entry. Like labels, these are persisted
+  // immediately through their own API (not the draft), so they only load for an
+  // entry that already exists in the database. `datetimeEditor` names what the
+  // popover is doing: "new" for a fresh date, an existing record to edit, or
+  // null when closed.
+  const [datetimes, setDatetimes] = useState<InformationDatetime[]>([]);
+  const [datetimeEditor, setDatetimeEditor] = useState<
+    "new" | InformationDatetime | null
+  >(null);
+  const [datetimeError, setDatetimeError] = useState<string | null>(null);
 
   // Bumped after a successful Submit so the field history popovers refresh with
   // the just-published edits.
@@ -254,6 +286,66 @@ export default function InformationSidebar({
     }
   }
 
+  // Load the selected entry's datetimes whenever the selection changes to a
+  // persisted row. Unsaved (client-only) rows have no id in the database yet, so
+  // there is nothing to fetch and the section is gated closed.
+  useEffect(() => {
+    setDatetimeEditor(null);
+    setDatetimeError(null);
+    if (selectedId === null || !persistedIds.has(selectedId)) {
+      setDatetimes([]);
+      return;
+    }
+    let active = true;
+    getDatetimes(projectId, file.id, selectedId)
+      .then((rows) => {
+        if (active) setDatetimes(rows);
+      })
+      .catch(() => {
+        if (active) setDatetimes([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId, file.id, selectedId, persistedIds]);
+
+  async function handleSaveDatetime(payload: DatetimeInputPayload) {
+    if (!selectedId) return;
+    setDatetimeError(null);
+    const editing = datetimeEditor;
+    if (editing && editing !== "new") {
+      const updated = await updateDatetime(
+        projectId,
+        file.id,
+        selectedId,
+        editing.id,
+        payload,
+      );
+      setDatetimes((prev) =>
+        prev.map((d) => (d.id === updated.id ? updated : d)),
+      );
+    } else {
+      const created = await addDatetime(projectId, file.id, selectedId, payload);
+      setDatetimes((prev) => [...prev, created]);
+    }
+    setDatetimeEditor(null);
+  }
+
+  async function handleDeleteDatetime(datetimeId: string) {
+    if (!selectedId) return;
+    setDatetimeError(null);
+    const prev = datetimes;
+    setDatetimes((current) => current.filter((d) => d.id !== datetimeId));
+    try {
+      await deleteDatetime(projectId, file.id, selectedId, datetimeId);
+    } catch (err) {
+      setDatetimes(prev);
+      setDatetimeError(
+        err instanceof Error ? err.message : "Failed to delete date.",
+      );
+    }
+  }
+
   // Submit publishes the whole snapshot's information rows to the database
   // (Save only stages a draft), so as soon as a submit succeeds every current
   // entry is persisted — unlock their label pickers immediately rather than
@@ -293,17 +385,18 @@ export default function InformationSidebar({
     (label) => !currentLabels.includes(label.id),
   );
 
-  const fieldClass =
-    "resize-y rounded-md border border-black/[.08] bg-transparent px-2 py-1.5 text-xs text-black outline-none focus:border-black/[.25] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/[.4]";
-
   return (
     <aside
       className={
         embedded
           ? // Embedded in the PDF viewer modal: a plain full-height left column.
             "flex h-full w-[28rem] shrink-0 flex-col border-r border-black/[.08] bg-zinc-50 dark:border-white/[.145] dark:bg-black"
-          : // Overlay used in ProjectView: absolutely positioned over the table.
-            "absolute inset-y-0 right-96 z-10 flex w-[28rem] flex-col border-l border-r border-black/[.08] bg-zinc-50 shadow-xl dark:border-white/[.145] dark:bg-black"
+          : elevated
+            ? // Raised over the full-screen timeline: flush to the right edge and
+              // above the timeline layer (z-20).
+              "absolute inset-y-0 right-0 z-30 flex w-[28rem] flex-col border-l border-black/[.08] bg-zinc-50 shadow-xl dark:border-white/[.145] dark:bg-black"
+            : // Overlay used in ProjectView: absolutely positioned over the table.
+              "absolute inset-y-0 right-96 z-10 flex w-[28rem] flex-col border-l border-r border-black/[.08] bg-zinc-50 shadow-xl dark:border-white/[.145] dark:bg-black"
       }
     >
       <header className="flex items-start justify-between gap-2 border-b border-black/[.08] p-4 dark:border-white/[.145]">
@@ -444,7 +537,7 @@ export default function InformationSidebar({
                       type="button"
                       onClick={() => setPickingLabel((open) => !open)}
                       disabled={!isHeldByMe || lockedByOther || isUnsaved}
-                      title={isUnsaved ? "Save this entry before adding labels" : undefined}
+                      title={isUnsaved ? "Submit this entry before adding labels" : undefined}
                       className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
                     >
                       + Label
@@ -468,23 +561,89 @@ export default function InformationSidebar({
                 )}
               </div>
 
+              {/* Dates — precision-aware datetimes shown on timelines (see the
+                  timeline feature). Persisted immediately through their own API,
+                  so gated closed until the entry exists in the database. */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-black dark:text-zinc-50">
+                  Dates
+                </span>
+                {datetimes.length > 0 && (
+                  <ul className="flex flex-col gap-1">
+                    {datetimes.map((dt) => (
+                      <li
+                        key={dt.id}
+                        className="flex items-center gap-2 rounded-md border border-black/[.08] px-2 py-1 dark:border-white/[.145]"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-xs text-black dark:text-zinc-50">
+                          {datetimeSummary(dt)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDatetimeEditor(dt)}
+                          disabled={!isHeldByMe || lockedByOther}
+                          aria-label={`Edit date ${datetimeSummary(dt)}`}
+                          className="shrink-0 text-xs text-zinc-500 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteDatetime(dt.id)}
+                          disabled={!isHeldByMe || lockedByOther}
+                          aria-label={`Delete date ${datetimeSummary(dt)}`}
+                          className="shrink-0 leading-none text-zinc-400 transition-colors hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-500 dark:hover:text-zinc-300"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {datetimeEditor !== null ? (
+                  <DatetimeEditor
+                    initial={datetimeEditor === "new" ? null : datetimeEditor}
+                    onSave={handleSaveDatetime}
+                    onCancel={() => setDatetimeEditor(null)}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setDatetimeEditor("new")}
+                    disabled={!isHeldByMe || lockedByOther || isUnsaved}
+                    title={
+                      isUnsaved ? "Submit this entry before adding dates" : undefined
+                    }
+                    className="self-start rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+                  >
+                    + Add date
+                  </button>
+                )}
+                {datetimeError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {datetimeError}
+                  </p>
+                )}
+              </div>
+
               <label className="flex flex-col gap-1">
                 <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Information Text
                   <FieldHistoryButton
                     fieldLabel="Information Text"
                     versions={history.versionsFor("informationText")}
+                    renderRich
                     hidden={isUnsaved}
                   />
                 </span>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="Information Text"
                   value={text}
-                  onChange={(event) =>
-                    patchSelected({ informationText: emptyToNull(event.target.value) })
+                  onChange={(html) =>
+                    patchSelected({ informationText: htmlOrNull(html) })
                   }
                   disabled={!isHeldByMe || lockedByOther}
-                  rows={4}
-                  className={fieldClass}
+                  minRows={4}
                 />
               </label>
 
@@ -494,17 +653,18 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Overall Bias"
                     versions={history.versionsFor("overallBias")}
+                    renderRich
                     hidden={isUnsaved}
                   />
                 </span>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="Overall Bias"
                   value={bias}
-                  onChange={(event) =>
-                    patchSelected({ overallBias: emptyToNull(event.target.value) })
+                  onChange={(html) =>
+                    patchSelected({ overallBias: htmlOrNull(html) })
                   }
                   disabled={!isHeldByMe || lockedByOther}
-                  rows={3}
-                  className={fieldClass}
+                  minRows={3}
                 />
               </label>
 
@@ -531,19 +691,18 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Information Reliability"
                     versions={history.versionsFor("informationReliability")}
+                    renderRich
                     hidden={isUnsaved}
                   />
                 </span>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="Information Reliability"
                   value={reliability}
-                  onChange={(event) =>
-                    patchSelected({
-                      informationReliability: emptyToNull(event.target.value),
-                    })
+                  onChange={(html) =>
+                    patchSelected({ informationReliability: htmlOrNull(html) })
                   }
                   disabled={!isHeldByMe || lockedByOther}
-                  rows={3}
-                  className={fieldClass}
+                  minRows={3}
                 />
               </label>
 
@@ -570,19 +729,18 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Information Credibility"
                     versions={history.versionsFor("informationCredibility")}
+                    renderRich
                     hidden={isUnsaved}
                   />
                 </span>
-                <textarea
+                <RichTextEditor
+                  ariaLabel="Information Credibility"
                   value={credibility}
-                  onChange={(event) =>
-                    patchSelected({
-                      informationCredibility: emptyToNull(event.target.value),
-                    })
+                  onChange={(html) =>
+                    patchSelected({ informationCredibility: htmlOrNull(html) })
                   }
                   disabled={!isHeldByMe || lockedByOther}
-                  rows={3}
-                  className={fieldClass}
+                  minRows={3}
                 />
               </label>
             </div>

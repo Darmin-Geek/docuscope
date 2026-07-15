@@ -595,7 +595,7 @@ test.describe("Information view", () => {
     await expect(labelButton).toBeDisabled();
     await expect(labelButton).toHaveAttribute(
       "title",
-      "Save this entry before adding labels",
+      "Submit this entry before adding labels",
     );
   });
 
