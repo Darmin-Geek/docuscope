@@ -156,6 +156,13 @@ export function precisionBounds(
   }
 }
 
+// The best-guess instant of an endpoint: the middle of its half-open precision
+// window. For day precision this is noon; for a year, ~1 Jul. Integer bigint
+// division truncates by ≤1ms, which is immaterial at any drawn scale.
+function midpoint(b: Bounds): bigint {
+  return (b.lowerMs + b.upperMs) / BigInt(2);
+}
+
 // A datetime as captured by the editor: a point (one endpoint) or a range (two
 // endpoints, each with its own precision). Mirrors the API payload.
 export type DatetimeInput = {
@@ -167,11 +174,14 @@ export type DatetimeInput = {
 };
 
 // The four derived bounds a timeline entry needs. For a point, core bounds are
-// null and [lowerMs, upperMs] is the single faded band. For a range:
-//   lowerMs     = start.lower  (left edge of the left whisker)
-//   coreLowerMs = start.upper  (left edge of the solid bar)
-//   coreUpperMs = end.lower    (right edge of the solid bar)
-//   upperMs     = end.upper    (right edge of the right whisker)
+// null and [lowerMs, upperMs] is the single faded band. For a range the solid
+// bar spans each endpoint's *best-guess* moment — the midpoint of its precision
+// window (noon for a day, mid-year for a year, …) — and the faded whiskers run
+// from there out to the window edges:
+//   lowerMs     = start.lower    (outer edge of the left whisker)
+//   coreLowerMs = mid(start)     (left edge of the solid bar — the start's best guess)
+//   coreUpperMs = mid(end)       (right edge of the solid bar — the end's best guess)
+//   upperMs     = end.upper      (outer edge of the right whisker)
 export type DerivedBounds = {
   lowerMs: bigint;
   upperMs: bigint;
@@ -252,8 +262,8 @@ export function deriveBounds(input: DatetimeInput): DerivedBounds {
   return {
     lowerMs: start.lowerMs,
     upperMs: end.upperMs,
-    coreLowerMs: start.upperMs,
-    coreUpperMs: end.lowerMs,
+    coreLowerMs: midpoint(start),
+    coreUpperMs: midpoint(end),
   };
 }
 

@@ -537,7 +537,7 @@ export default function InformationSidebar({
                       type="button"
                       onClick={() => setPickingLabel((open) => !open)}
                       disabled={!isHeldByMe || lockedByOther || isUnsaved}
-                      title={isUnsaved ? "Save this entry before adding labels" : undefined}
+                      title={isUnsaved ? "Submit this entry before adding labels" : undefined}
                       className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
                     >
                       + Label
@@ -612,7 +612,7 @@ export default function InformationSidebar({
                     onClick={() => setDatetimeEditor("new")}
                     disabled={!isHeldByMe || lockedByOther || isUnsaved}
                     title={
-                      isUnsaved ? "Save this entry before adding dates" : undefined
+                      isUnsaved ? "Submit this entry before adding dates" : undefined
                     }
                     className="self-start rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
                   >

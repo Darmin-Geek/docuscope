@@ -117,12 +117,17 @@ export default function DatetimeEditor({
     const s = precisionBounds(toParts(start), start.prec);
     const sLo = Number(s.lowerMs);
     const sHi = Number(s.upperMs);
+    // Best-guess instant of an endpoint = the middle of its precision window
+    // (noon for a day). The solid bar spans the two midpoints; whiskers reach
+    // from each midpoint out to its window edge. Mirrors deriveBounds().
+    const sMid = (sLo + sHi) / 2;
     if (!isRange) {
-      return { valid: true, lo: sLo, hi: sHi, sLo, sHi, eLo: sLo, eHi: sHi };
+      return { valid: true, lo: sLo, hi: sHi, sLo, sHi, sMid, eLo: sLo, eHi: sHi, eMid: sHi };
     }
     const e = precisionBounds(toParts(end), end.prec);
     const eLo = Number(e.lowerMs);
     const eHi = Number(e.upperMs);
+    const eMid = (eLo + eHi) / 2;
     const valid = eHi > sLo;
     return {
       valid,
@@ -130,8 +135,10 @@ export default function DatetimeEditor({
       hi: Math.max(sHi, eHi),
       sLo,
       sHi,
+      sMid,
       eLo,
       eHi,
+      eMid,
     };
   }, [isRange, start, end]);
 
@@ -350,8 +357,10 @@ function PreviewBar({
     hi: number;
     sLo: number;
     sHi: number;
+    sMid: number;
     eLo: number;
     eHi: number;
+    eMid: number;
   };
   isRange: boolean;
 }) {
@@ -375,10 +384,10 @@ function PreviewBar({
     <svg viewBox={`0 0 ${W} 34`} width="100%" className="mt-1 block">
       {isRange ? (
         <>
-          {/* start whisker (left), end whisker (right), solid certain span */}
-          <rect x={x(preview.sLo)} y={15} width={w(preview.sLo, preview.sHi)} height={5} rx={2.5} fill="#2563eb" fillOpacity={0.35} />
-          <rect x={x(preview.eLo)} y={15} width={w(preview.eLo, preview.eHi)} height={5} rx={2.5} fill="#2563eb" fillOpacity={0.35} />
-          <rect x={x(preview.sHi)} y={10} width={w(preview.sHi, preview.eLo)} height={15} rx={3} fill="#2563eb" />
+          {/* start whisker (edge→midpoint), end whisker (midpoint→edge), solid midpoint span */}
+          <rect x={x(preview.sLo)} y={15} width={w(preview.sLo, preview.sMid)} height={5} rx={2.5} fill="#2563eb" fillOpacity={0.35} />
+          <rect x={x(preview.eMid)} y={15} width={w(preview.eMid, preview.eHi)} height={5} rx={2.5} fill="#2563eb" fillOpacity={0.35} />
+          <rect x={x(preview.sMid)} y={10} width={w(preview.sMid, preview.eMid)} height={15} rx={3} fill="#2563eb" />
         </>
       ) : (
         <rect x={x(preview.sLo)} y={12} width={w(preview.sLo, preview.sHi)} height={11} rx={3} fill="#2563eb" fillOpacity={0.35} />

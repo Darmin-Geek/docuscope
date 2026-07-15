@@ -384,8 +384,8 @@ export const informationDatetimes = pgTable(
     // derived bounds (epoch ms, proleptic Gregorian) — what the timeline draws
     lowerMs: bigint('lower_ms', { mode: 'bigint' }).notNull(), // start.lower
     upperMs: bigint('upper_ms', { mode: 'bigint' }).notNull(), // end.upper (or start.upper for a point)
-    coreLowerMs: bigint('core_lower_ms', { mode: 'bigint' }), // start.upper (range only)
-    coreUpperMs: bigint('core_upper_ms', { mode: 'bigint' }), // end.lower   (range only)
+    coreLowerMs: bigint('core_lower_ms', { mode: 'bigint' }), // mid(start) (range only)
+    coreUpperMs: bigint('core_upper_ms', { mode: 'bigint' }), // mid(end)   (range only)
   },
   (t) => [
     index('info_datetimes_info_idx').on(t.informationId),

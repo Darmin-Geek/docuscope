@@ -59,9 +59,9 @@ test.describe("datetime CRUD", () => {
       endPrecision: "month",
     });
 
-    expect(dt.lowerMs).toBe(Date.UTC(1980, 0, 1)); // decade start
-    expect(dt.coreLowerMs).toBe(Date.UTC(1990, 0, 1)); // decade end = solid start
-    expect(dt.coreUpperMs).toBe(Date.UTC(1995, 2, 1)); // Mar 1995 start = solid end
+    expect(dt.lowerMs).toBe(Date.UTC(1980, 0, 1)); // decade start = left whisker edge
+    expect(dt.coreLowerMs).toBe((Date.UTC(1980, 0, 1) + Date.UTC(1990, 0, 1)) / 2); // mid-decade = solid start
+    expect(dt.coreUpperMs).toBe((Date.UTC(1995, 2, 1) + Date.UTC(1995, 3, 1)) / 2); // mid-March = solid end
     expect(dt.upperMs).toBe(Date.UTC(1995, 3, 1)); // Apr 1995 = right whisker end
   });
 

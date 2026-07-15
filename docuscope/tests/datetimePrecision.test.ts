@@ -18,6 +18,12 @@ function utc(y: number, mo = 1, d = 1, h = 0, mi = 0): bigint {
   return BigInt(ms);
 }
 
+// Midpoint of a [lo, hi) window — the endpoint's best-guess instant (noon for a
+// day), which is where a range's solid bar begins/ends.
+function mid(lo: bigint, hi: bigint): bigint {
+  return (lo + hi) / BigInt(2);
+}
+
 test.describe("precisionBounds — window per level", () => {
   const p: DatetimeParts = { year: 1994, month: 7, day: 8, hour: 13, minute: 45 };
 
@@ -122,10 +128,27 @@ test.describe("deriveBounds — point vs range", () => {
       end: { year: 1995, month: 3 },
       endPrecision: "month",
     });
-    expect(d.lowerMs).toBe(utc(1980, 1, 1)); // start.lower
-    expect(d.coreLowerMs).toBe(utc(1990, 1, 1)); // start.upper
-    expect(d.coreUpperMs).toBe(utc(1995, 3, 1)); // end.lower
-    expect(d.upperMs).toBe(utc(1995, 4, 1)); // end.upper
+    expect(d.lowerMs).toBe(utc(1980, 1, 1)); // start.lower (left whisker edge)
+    expect(d.coreLowerMs).toBe(mid(utc(1980, 1, 1), utc(1990, 1, 1))); // mid-decade
+    expect(d.coreUpperMs).toBe(mid(utc(1995, 3, 1), utc(1995, 4, 1))); // mid-March
+    expect(d.upperMs).toBe(utc(1995, 4, 1)); // end.upper (right whisker edge)
+  });
+
+  test("range: day precision both ends — solid bar spans noon→noon", () => {
+    // The reported case: Jan 1 → Jan 4, day precision. Solid bar starts at noon
+    // on Jan 1 (not midnight of Jan 2) and ends at noon on Jan 4; whiskers reach
+    // out to midnight on either side.
+    const d = deriveBounds({
+      isRange: true,
+      start: { year: 2024, month: 1, day: 1 },
+      startPrecision: "day",
+      end: { year: 2024, month: 1, day: 4 },
+      endPrecision: "day",
+    });
+    expect(d.lowerMs).toBe(utc(2024, 1, 1, 0, 0)); // midnight, start of Jan 1
+    expect(d.coreLowerMs).toBe(utc(2024, 1, 1, 12, 0)); // noon on Jan 1
+    expect(d.coreUpperMs).toBe(utc(2024, 1, 4, 12, 0)); // noon on Jan 4
+    expect(d.upperMs).toBe(utc(2024, 1, 5, 0, 0)); // midnight, end of Jan 4
   });
 
   test("reversed range throws", () => {
@@ -165,8 +188,8 @@ test.describe("canonical value round-trip", () => {
     };
     const fromRaw = deriveBoundsFromRaw(raw);
     expect(fromRaw.lowerMs).toBe(utc(1980, 1, 1));
-    expect(fromRaw.coreLowerMs).toBe(utc(1990, 1, 1));
-    expect(fromRaw.coreUpperMs).toBe(utc(1995, 3, 1));
+    expect(fromRaw.coreLowerMs).toBe(mid(utc(1980, 1, 1), utc(1990, 1, 1)));
+    expect(fromRaw.coreUpperMs).toBe(mid(utc(1995, 3, 1), utc(1995, 4, 1)));
     expect(fromRaw.upperMs).toBe(utc(1995, 4, 1));
   });
 });

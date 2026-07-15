@@ -155,9 +155,9 @@
     <li>A <strong>point</strong> has one endpoint. It draws as a single faded band spanning that endpoint's <code>[lower, upper]</code> precision window (a precise minute is a thin band; a decade is a wide one).</li>
     <li>A <strong>range</strong> has a <em>start</em> endpoint and an <em>end</em> endpoint, <strong>each with its own precision</strong>. It draws as:
       <ul>
-        <li><strong>solid bar</strong> = <code>[start.upper, end.lower]</code> — the interval that is <em>definitely</em> inside the range. Its two ends are the range's endpoints.</li>
-        <li><strong>start precision line</strong> — a faded whisker extending <em>outward</em> (leftward, into the past) from the solid bar's left end, its length = the start endpoint's precision window <code>[start.lower, start.upper]</code>.</li>
-        <li><strong>end precision line</strong> — a faded whisker extending <em>outward</em> (rightward, into the future) from the solid bar's right end, its length = the end endpoint's precision window <code>[end.lower, end.upper]</code>.</li>
+        <li><strong>solid bar</strong> = <code>[mid(start), mid(end)]</code> — from each endpoint's <em>best-guess</em> instant, the midpoint of its precision window (noon for a day, mid-year for a year). Its two ends are the range's endpoints.</li>
+        <li><strong>start precision line</strong> — a faded whisker extending <em>outward</em> (leftward, into the past) from the solid bar's left end out to <code>start.lower</code>, i.e. over the half-window <code>[start.lower, mid(start)]</code>.</li>
+        <li><strong>end precision line</strong> — a faded whisker extending <em>outward</em> (rightward, into the future) from the solid bar's right end out to <code>end.upper</code>, i.e. over the half-window <code>[mid(end), end.upper]</code>.</li>
       </ul>
     </li>
   </ul>
@@ -167,7 +167,7 @@
     <ul style="margin:6px 0 0">
       <li>"The 1990s" (point) → one wide faded band, no solid bar.</li>
       <li>"8 Jul 1994 13:45 → 14:30" (minute/minute) → a solid bar with two whiskers so short they read as sharp caps — effectively a clean solid line.</li>
-      <li>"Sometime in the 1980s until March 1995" (decade start, month end) → solid bar from 1990→Feb 1995, a <em>long</em> faded whisker reaching back across the 1980s on the left, and a <em>short</em> faded whisker over March 1995 on the right.</li>
+      <li>"Sometime in the 1980s until March 1995" (decade start, month end) → solid bar from mid-1985→mid-March 1995, a <em>long</em> faded whisker reaching back to 1980 on the left, and a <em>short</em> faded whisker out to April 1995 on the right.</li>
     </ul>
   </div>
 
