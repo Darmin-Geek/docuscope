@@ -94,6 +94,16 @@ test.describe("sanitizeHtml", () => {
     expect(bad).not.toContain("javascript");
   });
 
+  test("rejects javascript: hrefs obfuscated with control chars", () => {
+    // A literal tab / newline the URL parser strips would otherwise re-form
+    // "java\tscript:" into "javascript:" in the browser.
+    for (const c of ["\t", "\n", "\r", "\0"]) {
+      const bad = sanitizeHtml(`<a href="java${c}script:alert(1)">x</a>`);
+      expect(bad).toBe("<a>x</a>");
+      expect(bad.toLowerCase()).not.toContain("script:");
+    }
+  });
+
   test("unwraps unknown tags but keeps their text", () => {
     expect(sanitizeHtml("<div><span>hello</span></div>")).toBe("hello");
   });

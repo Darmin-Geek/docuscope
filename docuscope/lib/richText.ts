@@ -44,7 +44,15 @@ function escapeHtml(value: string): string {
 function safeHref(attrs: string): string | null {
   const match = attrs.match(/\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
   if (!match) return null;
-  const raw = (match[2] ?? match[3] ?? match[4] ?? "").trim();
+  // Strip every ASCII control / whitespace char (incl. tab, LF, CR). The URL
+  // parser drops these before resolving the scheme, so leaving them in would let
+  // "java\tscript:" slip past the scheme check below and re-form as
+  // "javascript:" in the browser. Removing them makes the scheme test operate on
+  // the same string the browser will.
+  const raw = (match[2] ?? match[3] ?? match[4] ?? "").replace(
+    /[\u0000-\u0020]/g,
+    "",
+  );
   if (!raw) return null;
   // A scheme is everything before the first ":" that precedes any /, ?, or #.
   const schemeMatch = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
