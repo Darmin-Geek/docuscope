@@ -656,7 +656,12 @@ export default function FileSidebar({
             />
           </label>
 
-          <label className="flex flex-col gap-1">
+          {/* A div, not a label: the field control is a contentEditable
+              RichTextEditor (not a labelable element), so a wrapping label would
+              forward clicks anywhere in the box to its first labelable
+              descendant — the version-history button — opening it by mistake.
+              The editor carries its own accessible name via aria-label. */}
+          <div className="flex flex-col gap-1">
             <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Source
               <FieldHistoryButton
@@ -672,9 +677,9 @@ export default function FileSidebar({
               disabled={!isHeldByMe || lockedByOther}
               minRows={3}
             />
-          </label>
+          </div>
 
-          <label className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
             <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Overall Bias
               <FieldHistoryButton
@@ -692,7 +697,7 @@ export default function FileSidebar({
               disabled={!isHeldByMe || lockedByOther}
               minRows={3}
             />
-          </label>
+          </div>
 
           <AdmiraltyCodeSelect
             label="Reliability Rating"
@@ -708,7 +713,7 @@ export default function FileSidebar({
             }
           />
 
-          <label className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
             <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Overall Reliability
               <FieldHistoryButton
@@ -726,7 +731,7 @@ export default function FileSidebar({
               disabled={!isHeldByMe || lockedByOther}
               minRows={3}
             />
-          </label>
+          </div>
 
           <AdmiraltyCodeSelect
             label="Credibility Rating"
@@ -742,7 +747,7 @@ export default function FileSidebar({
             }
           />
 
-          <label className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
             <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
               Overall Credibility
               <FieldHistoryButton
@@ -760,7 +765,7 @@ export default function FileSidebar({
               disabled={!isHeldByMe || lockedByOther}
               minRows={3}
             />
-          </label>
+          </div>
 
           {/* Save stages the working draft; Submit publishes it to the main
               tables and clears the draft. Both require holding the check-out

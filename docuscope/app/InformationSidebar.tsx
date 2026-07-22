@@ -626,7 +626,12 @@ export default function InformationSidebar({
                 )}
               </div>
 
-              <label className="flex flex-col gap-1">
+              {/* A div, not a label: the field control is a contentEditable
+                  RichTextEditor (not a labelable element), so a wrapping label
+                  would forward clicks anywhere in the box to its first labelable
+                  descendant — the version-history button — opening it by mistake.
+                  The editor carries its own accessible name via aria-label. */}
+              <div className="flex flex-col gap-1">
                 <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Information Text
                   <FieldHistoryButton
@@ -645,9 +650,9 @@ export default function InformationSidebar({
                   disabled={!isHeldByMe || lockedByOther}
                   minRows={4}
                 />
-              </label>
+              </div>
 
-              <label className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1">
                 <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Overall Bias
                   <FieldHistoryButton
@@ -666,7 +671,7 @@ export default function InformationSidebar({
                   disabled={!isHeldByMe || lockedByOther}
                   minRows={3}
                 />
-              </label>
+              </div>
 
               <AdmiraltyCodeSelect
                 label="Reliability Rating"
@@ -685,7 +690,7 @@ export default function InformationSidebar({
                 }
               />
 
-              <label className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1">
                 <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Information Reliability
                   <FieldHistoryButton
@@ -704,7 +709,7 @@ export default function InformationSidebar({
                   disabled={!isHeldByMe || lockedByOther}
                   minRows={3}
                 />
-              </label>
+              </div>
 
               <AdmiraltyCodeSelect
                 label="Credibility Rating"
@@ -723,7 +728,7 @@ export default function InformationSidebar({
                 }
               />
 
-              <label className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1">
                 <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
                   Information Credibility
                   <FieldHistoryButton
@@ -742,7 +747,7 @@ export default function InformationSidebar({
                   disabled={!isHeldByMe || lockedByOther}
                   minRows={3}
                 />
-              </label>
+              </div>
             </div>
           </div>
         )}

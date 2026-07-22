@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import {
   RELIABILITY_OPTIONS,
   CREDIBILITY_OPTIONS,
@@ -34,14 +34,21 @@ export default function AdmiraltyCodeSelect({
   const options: AdmiraltyOption[] =
     kind === "reliability" ? RELIABILITY_OPTIONS : CREDIBILITY_OPTIONS;
   const selected = options.find((o) => o.code === value) ?? null;
+  const selectId = useId();
 
+  // A div (not a label) wraps the whole field: the label accessory is a
+  // version-history button, and a wrapping label would target its first
+  // labelable descendant — the button, not the select — so clicks on the field
+  // text (or a rich sibling) would open history by mistake. The visible label
+  // is instead tied to the select explicitly via htmlFor.
   return (
-    <label className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1">
       <span className="flex items-center gap-1 text-xs font-medium text-black dark:text-zinc-50">
-        {label}
+        <label htmlFor={selectId}>{label}</label>
         {labelAccessory}
       </span>
       <select
+        id={selectId}
         value={value ?? ""}
         onChange={(event) => onChange(event.target.value || null)}
         disabled={disabled}
@@ -59,6 +66,6 @@ export default function AdmiraltyCodeSelect({
           {selected.description}
         </span>
       )}
-    </label>
+    </div>
   );
 }
