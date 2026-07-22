@@ -105,6 +105,13 @@ export default function InformationSidebar({
   const { lockedByOther, isHeldByMe, editorName } = lock;
   const embedded = variant === "embedded";
 
+  // "Standalone" = the sidebar is shown without the File Details sidebar beside
+  // it: the PDF viewer's embedded left panel and the timeline's elevated overlay.
+  // In those two places the File Details toolbar (which normally hosts check-in/
+  // out and Save/Submit) isn't reachable, so this sidebar carries its own copies
+  // of those controls (using the shared lock + draft, exactly as File Details).
+  const standalone = embedded || elevated;
+
   // The information list comes straight from the shared working draft (issue
   // #78). Add/edit/delete mutate that snapshot in memory; nothing is persisted
   // until Save/Submit in the File Details sidebar.
@@ -219,6 +226,19 @@ export default function InformationSidebar({
   // Save/Submit.
   function handleClose() {
     onClose();
+  }
+
+  // Save stages the shared working draft; Submit publishes it. Both mirror the
+  // File Details buttons (they act on the same draft), shown here only in the
+  // standalone places where those File Details buttons aren't reachable. The
+  // `draft.status === "submitted"` effect below already refreshes the label
+  // pickers and field history after a successful submit.
+  function handleSave() {
+    void draft.save();
+  }
+
+  async function handleSubmit() {
+    await draft.submit();
   }
 
   // Enter commits the single-line title input (a no-op beyond losing focus now
@@ -403,18 +423,34 @@ export default function InformationSidebar({
         <h2 className="min-w-0 break-words text-lg font-semibold text-black dark:text-zinc-50">
           Information
         </h2>
-        {/* The modal supplies its own close control, so the header close button
-            is only shown in the overlay variant. */}
-        {!embedded && (
-          <button
-            type="button"
-            onClick={handleClose}
-            aria-label="Close information view"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
-          >
-            ✕
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {/* Manual check-out, mirroring the File Details toolbar button. Only
+              shown standalone (PDF viewer / timeline), where that button isn't
+              reachable. Disabled (greyed) while another user holds the file —
+              the amber banner below names who. */}
+          {standalone && (
+            <button
+              type="button"
+              onClick={() => (isHeldByMe ? lock.release() : lock.acquire())}
+              disabled={lockedByOther}
+              className="flex h-7 items-center justify-center rounded-md border border-black/[.08] px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+            >
+              {isHeldByMe ? "Check In" : "Check Out"}
+            </button>
+          )}
+          {/* The modal supplies its own close control, so the header close button
+              is only shown in the overlay variant. */}
+          {!embedded && (
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label="Close information view"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </header>
 
       {lockedByOther && (
@@ -752,6 +788,58 @@ export default function InformationSidebar({
           </div>
         )}
       </div>
+
+      {/* Save/Submit footer, mirroring the File Details buttons. Only shown
+          standalone (PDF viewer / timeline), where those buttons aren't
+          reachable. Both act on the shared working draft and require holding the
+          check-out; Submit also respects the Admiralty-description rule (#80). */}
+      {standalone && (
+        <div className="flex flex-col gap-2 border-t border-black/[.08] p-4 dark:border-white/[.145]">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!isHeldByMe || lockedByOther || draft.saving}
+              className="flex h-9 flex-1 items-center justify-center rounded-md border border-black/[.08] text-sm font-medium text-zinc-700 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+            >
+              {draft.saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={
+                !isHeldByMe ||
+                lockedByOther ||
+                draft.submitting ||
+                draft.submitBlockReason != null
+              }
+              title={draft.submitBlockReason ?? undefined}
+              className="flex h-9 flex-1 items-center justify-center rounded-md bg-black text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {draft.submitting ? "Submitting…" : "Submit"}
+            </button>
+          </div>
+
+          {/* Explain why Submit is disabled when an Admiralty rating is missing
+              its description; only shown to the check-out holder (#80). */}
+          {isHeldByMe && !lockedByOther && draft.submitBlockReason && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              {draft.submitBlockReason}
+            </p>
+          )}
+          {draft.status === "saved" && (
+            <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>
+          )}
+          {draft.status === "submitted" && (
+            <p className="text-xs text-green-600 dark:text-green-400">
+              Submitted.
+            </p>
+          )}
+          {draft.error && (
+            <p className="text-xs text-red-600 dark:text-red-400">{draft.error}</p>
+          )}
+        </div>
+      )}
 
       {deleteTarget && (
         <DeleteInformationModal
