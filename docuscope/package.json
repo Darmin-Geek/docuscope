@@ -39,7 +39,7 @@
     "next": "16.2.7",
     "oidc-client-ts": "^3.1.0",
     "pdfjs-dist": "^6.0.227",
-    "pg": "^8.13.0",
+    "pg": "^8.22.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-oidc-context": "^3.2.0"
@@ -54,7 +54,6 @@
     "drizzle-kit": "^0.31.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
-    "lightningcss-linux-x64-gnu": "^1.32.0",
     "playwright": "^1.60.0",
     "postcss-lightningcss": "^1.1.0",
     "tailwindcss": "^4",
