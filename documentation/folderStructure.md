@@ -18,7 +18,6 @@ root is a thin wrapper; almost all application code lives in `docuscope/`.
 | `.claude/` | Claude Code configuration for the repo — local settings plus scratch git worktrees used by background agents. Not part of the application. |
 | `docker-compose.yml` | Local Postgres container (host port 5433) started automatically by `npm test`. |
 | `.env` / `.env.example` | Environment variables for local development; `.env.example` documents the required keys. |
-| `Set-DockerEnv.ps1` | PowerShell helper for pointing the shell at the local Docker environment. |
 | `CLAUDE.md` | Instructions for AI coding agents; re-exports `docuscope/CLAUDE.md`. |
 
 ---
