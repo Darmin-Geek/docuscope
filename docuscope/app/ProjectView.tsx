@@ -393,6 +393,13 @@ export default function ProjectView({
             }}
             onSaved={handleFileSaved}
             onMoved={() => void loadFiles()}
+            onDeleted={() => {
+              // Close the detail view for the deleter (issue #100) and reload
+              // the list so the now-deleted file drops out.
+              setSelectedFileId(null);
+              setInformationOpen(false);
+              void loadFiles();
+            }}
             onLabelsChanged={handleFileLabelsChanged}
           />
         )}

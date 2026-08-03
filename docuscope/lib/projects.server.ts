@@ -109,6 +109,7 @@ async function attachLabels(rows: FileRow[]): Promise<FileDoc[]> {
     fileReliabilityCode: r.fileReliabilityCode,
     fileCredibilityCode: r.fileCredibilityCode,
     checkedOutBy: r.checkedOutBy,
+    deletedOn: r.deletedOn ?? null,
     labels: map.get(r.id) ?? [],
     folderId: r.folderId,
   }));
@@ -283,7 +284,9 @@ export async function getFolderFileIds(
   const rows = await db
     .select({ fileId: fileFolders.fileId, folderId: fileFolders.folderId })
     .from(fileFolders)
-    .where(inArray(fileFolders.folderId, folderIds));
+    // Join files so soft-deleted files (issue #100) don't inflate folder counts.
+    .innerJoin(filesTable, eq(fileFolders.fileId, filesTable.id))
+    .where(and(inArray(fileFolders.folderId, folderIds), notDeleted));
 
   for (const r of rows) {
     map.get(r.folderId)?.add(r.fileId);
@@ -344,6 +347,12 @@ export async function moveFile(
 }
 
 // ── files ────────────────────────────────────────────────────────────────────
+
+// Soft-delete exclusion (issue #100). A file is "live" when deleted_on IS NULL.
+// This single predicate is threaded through every read that surfaces files
+// (lists, search, checkout) so a deleted file disappears everywhere at once —
+// and reappears everywhere if an admin resets deleted_on back to NULL.
+const notDeleted = isNull(filesTable.deletedOn);
 
 // Maps each metadata / information field key to its generated tsvector column.
 // `contents` is handled separately since it lives in the file_chunks table.
@@ -426,7 +435,7 @@ export async function getFiles(
       .select({ ...getTableColumns(filesTable), folderId: fileFolders.folderId })
       .from(filesTable)
       .leftJoin(fileFolders, eq(filesTable.id, fileFolders.fileId))
-      .where(and(eq(filesTable.projectId, projectId), ftsCondition(q, fields)));
+      .where(and(eq(filesTable.projectId, projectId), notDeleted, ftsCondition(q, fields)));
 
     return attachLabels(rows.map((r) => ({ ...r, folderId: r.folderId ?? null })));
   }
@@ -437,7 +446,7 @@ export async function getFiles(
       .select(getTableColumns(filesTable))
       .from(filesTable)
       .leftJoin(fileFolders, eq(filesTable.id, fileFolders.fileId))
-      .where(and(eq(filesTable.projectId, projectId), isNull(fileFolders.fileId)));
+      .where(and(eq(filesTable.projectId, projectId), notDeleted, isNull(fileFolders.fileId)));
 
     return attachLabels(rows.map((r) => ({ ...r, folderId: null })));
   }
@@ -454,7 +463,7 @@ export async function getFiles(
   const rows = await db
     .select()
     .from(filesTable)
-    .where(and(eq(filesTable.projectId, projectId), inArray(filesTable.id, fileIds)));
+    .where(and(eq(filesTable.projectId, projectId), notDeleted, inArray(filesTable.id, fileIds)));
 
   return attachLabels(rows.map((r) => ({ ...r, folderId })));
 }
@@ -549,6 +558,7 @@ export async function createFileRecord(
     fileReliabilityCode: null,
     fileCredibilityCode: null,
     checkedOutBy: null,
+    deletedOn: null,
     labels: [],
     folderId: folderId,
   };
@@ -694,6 +704,7 @@ export async function checkOutFile(
       and(
         eq(filesTable.id, fileId),
         eq(filesTable.projectId, projectId),
+        notDeleted,
         sql`(${filesTable.checkedOutBy} IS NULL OR ${filesTable.checkedOutBy} = ${uid})`,
       ),
     )
@@ -706,6 +717,33 @@ export async function checkInFile(projectId: string, fileId: string): Promise<vo
     .update(filesTable)
     .set({ checkedOutBy: null })
     .where(and(eq(filesTable.id, fileId), eq(filesTable.projectId, projectId)));
+}
+
+// Soft-delete a file (issue #100). Only the user who currently holds the file's
+// checkout may delete it, so the update is guarded on `checked_out_by = uid`
+// (and on the file not already being deleted). The same statement stamps
+// `deleted_on` and clears `checked_out_by` — nulling the lock is the required
+// automatic check-in. Guarding + writing in one UPDATE makes the "only the
+// holder can delete" rule race-free. Throws 'Conflict' if the caller isn't the
+// holder (or the file is already deleted / not in this project).
+export async function deleteFile(
+  projectId: string,
+  fileId: string,
+  uid: string,
+): Promise<void> {
+  const result = await db
+    .update(filesTable)
+    .set({ deletedOn: Date.now(), checkedOutBy: null })
+    .where(
+      and(
+        eq(filesTable.id, fileId),
+        eq(filesTable.projectId, projectId),
+        eq(filesTable.checkedOutBy, uid),
+        isNull(filesTable.deletedOn),
+      ),
+    )
+    .returning({ id: filesTable.id });
+  if (result.length === 0) throw new Error('Conflict');
 }
 
 // ── information ───────────────────────────────────────────────────────────────

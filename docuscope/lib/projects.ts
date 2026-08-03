@@ -44,6 +44,10 @@ export type FileDoc = {
   fileReliabilityCode: string | null;
   fileCredibilityCode: string | null;
   checkedOutBy: string | null;
+  // Soft-delete marker (issue #100). NULL for every file the API returns —
+  // deleted files are filtered out server-side — but kept on the type so the
+  // shape matches the DB row.
+  deletedOn: number | null;
   labels: string[];
   folderId: string | null;
 };
@@ -204,6 +208,14 @@ export async function moveFile(
   await api(`/api/projects/${projectId}/files/${fileId}/move`, {
     method: 'PATCH',
     body: JSON.stringify({ toFolderId }),
+  });
+}
+
+// Soft-delete a file (issue #100). The server requires the caller to currently
+// hold the file's checkout and rejects with 409 otherwise.
+export async function deleteFile(projectId: string, fileId: string): Promise<void> {
+  await api(`/api/projects/${projectId}/files/${fileId}`, {
+    method: 'DELETE',
   });
 }
 
