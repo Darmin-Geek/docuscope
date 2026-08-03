@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Docuscope",
+  title: "SIAM (Source and Information Analysis Manager)",
   description: "Description TBD",
 };
 
