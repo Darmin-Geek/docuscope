@@ -14,6 +14,7 @@ import {
   getFolders,
   getFolderFileIds,
   moveFile,
+  deleteFile,
   checkOcrStatus,
   ocrFile,
   getFileHistory,
@@ -32,6 +33,7 @@ import type { FileLock } from "./useFileLock";
 import type { FileDraft } from "./useFileDraft";
 import LabelPill from "./LabelPill";
 import MoveFileModal from "./MoveFileModal";
+import DeleteFileModal from "./DeleteFileModal";
 import DraftConflictModal from "./DraftConflictModal";
 import AdmiraltyCodeSelect from "./AdmiraltyCodeSelect";
 
@@ -61,6 +63,9 @@ type FileSidebarProps = {
   // reload its file list (the file may now belong to a different folder than the
   // one being viewed).
   onMoved: () => void;
+  // Called after the file is soft-deleted (issue #100) so the parent can close
+  // this detail view and reload its file list without the deleted file.
+  onDeleted: () => void;
   // Called after a label is added to / removed from this file. Unlike onSaved,
   // this hands back a mutator so the parent can apply the change against the
   // freshest file state: adding two labels in quick succession must not lose the
@@ -125,6 +130,7 @@ export default function FileSidebar({
   onClose,
   onSaved,
   onMoved,
+  onDeleted,
   onLabelsChanged,
 }: FileSidebarProps) {
   // Metadata fields read/write the shared working draft (issue #78) — no local
@@ -201,6 +207,9 @@ export default function FileSidebar({
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moveModalOpen, setMoveModalOpen] = useState(false);
+  // Soft-delete (issue #100) — only usable while this user holds the checkout.
+  const [deleting, setDeleting] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   const kind = previewKind(file.filename);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -315,6 +324,19 @@ export default function FileSidebar({
       setMoveError(err instanceof Error ? err.message : "Failed to move file.");
     } finally {
       setMoving(false);
+    }
+  }
+
+  // Soft-delete the file (issue #100). The server requires this user to hold the
+  // checkout; the trash button is disabled otherwise, and the deletion also
+  // checks the file in server-side. Rethrow so the modal can surface the error.
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteFile(projectId, file.id);
+      onDeleted();
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -530,6 +552,38 @@ export default function FileSidebar({
               aria-hidden="true"
               className="h-4 w-auto"
             />
+          </button>
+          {/* Soft-delete (issue #100). Only enabled while this user holds the
+              checkout — deleting also checks the file in, so it must be held. */}
+          <button
+            type="button"
+            onClick={() => setDeleteModalOpen(true)}
+            disabled={!isHeldByMe || deleting}
+            aria-label="Delete file"
+            title={
+              isHeldByMe
+                ? "Delete file"
+                : "Check out the file to delete it"
+            }
+            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-black/[.04] hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-zinc-500 dark:text-zinc-400 dark:hover:bg-white/[.06] dark:hover:text-red-400 dark:disabled:hover:text-zinc-400"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path d="M3 6h18" />
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+            </svg>
           </button>
           <button
             type="button"
@@ -929,6 +983,14 @@ export default function FileSidebar({
         currentFolderId={currentFolderId ?? null}
         onMove={handleMove}
         onClose={() => setMoveModalOpen(false)}
+      />
+    )}
+
+    {deleteModalOpen && (
+      <DeleteFileModal
+        filename={file.filename}
+        onCancel={() => setDeleteModalOpen(false)}
+        onConfirm={handleDelete}
       />
     )}
 

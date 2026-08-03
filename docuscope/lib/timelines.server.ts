@@ -1,5 +1,5 @@
 import { db } from './drizzle/db';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, isNull } from 'drizzle-orm';
 import {
   informationDatetimes,
   timelines as timelinesTable,
@@ -329,7 +329,15 @@ export async function getTimelineEntries(
       informationTable,
       eq(informationDatetimes.informationId, informationTable.id),
     )
-    .where(eq(timelineEntries.timelineId, timelineId))
+    // Join the owning file so a soft-deleted file's datetimes (issue #100) drop
+    // off the timeline. Recovering the file (deleted_on → NULL) restores them.
+    .innerJoin(filesTable, eq(informationTable.fileId, filesTable.id))
+    .where(
+      and(
+        eq(timelineEntries.timelineId, timelineId),
+        isNull(filesTable.deletedOn),
+      ),
+    )
     .orderBy(asc(informationDatetimes.lowerMs));
 
   return rows.map((r) => ({

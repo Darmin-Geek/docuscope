@@ -82,6 +82,13 @@ export const files = pgTable('files', {
   fileCredibilityCode: text('file_credibility_code'),
   checkedOutBy: text('checked_out_by'),
 
+  // Soft-delete marker (issue #100). NULL = live; a non-null epoch-ms timestamp
+  // (matching created_date's convention) means the file has been deleted. Rows
+  // are never physically removed — a deleted file is excluded from every read
+  // path (lists, search, checkout, timeline) while its data stays in Postgres
+  // and S3, so an admin can recover it by resetting this column to NULL.
+  deletedOn: bigint('deleted_on', { mode: 'number' }),
+
   // Generated stored tsvector columns — one per searchable metadata field. The
   // paragraph fields now hold sanitised HTML (issue #81), so their vectors strip
   // "<...>" tags to spaces before tokenising, keeping search on visible words
@@ -105,12 +112,28 @@ export const files = pgTable('files', {
   ),
 },
 (t) => [
-  // Separate GIN indexes — tsvector_ops only supports single-column GIN.
-  index('files_author_tsv_idx').using('gin', t.authorTsv),
-  index('files_overall_bias_tsv_idx').using('gin', t.overallBiasTsv),
-  index('files_source_tsv_idx').using('gin', t.sourceTsv),
-  index('files_file_reliability_tsv_idx').using('gin', t.fileReliabilityTsv),
-  index('files_file_credibility_tsv_idx').using('gin', t.fileCredibilityTsv),
+  // Separate GIN indexes — tsvector_ops only supports single-column GIN. All are
+  // partial (WHERE deleted_on IS NULL): search only ever queries live files
+  // (issue #100), so deleted rows are kept out of the index entirely.
+  index('files_author_tsv_idx')
+    .using('gin', t.authorTsv)
+    .where(sql`deleted_on IS NULL`),
+  index('files_overall_bias_tsv_idx')
+    .using('gin', t.overallBiasTsv)
+    .where(sql`deleted_on IS NULL`),
+  index('files_source_tsv_idx')
+    .using('gin', t.sourceTsv)
+    .where(sql`deleted_on IS NULL`),
+  index('files_file_reliability_tsv_idx')
+    .using('gin', t.fileReliabilityTsv)
+    .where(sql`deleted_on IS NULL`),
+  index('files_file_credibility_tsv_idx')
+    .using('gin', t.fileCredibilityTsv)
+    .where(sql`deleted_on IS NULL`),
+  // Speeds the list/root/folder scans that filter by project + not-deleted.
+  index('files_project_not_deleted_idx')
+    .on(t.projectId)
+    .where(sql`deleted_on IS NULL`),
 ]);
 
 // Chunks of a file's extracted text (e.g. PDF body). Each chunk carries a

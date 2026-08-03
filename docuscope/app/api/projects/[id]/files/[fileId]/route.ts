@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/verifyAuth';
-import { requireContributor, getFile, updateFileMetadata } from '@/lib/projects.server';
+import { requireContributor, getFile, updateFileMetadata, deleteFile } from '@/lib/projects.server';
 import { apiError } from '@/lib/apiError';
 
 export async function GET(
@@ -46,6 +46,24 @@ export async function PATCH(
       fileCredibilityCode: string | null;
     };
     await updateFileMetadata(id, fileId, body);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return apiError(err);
+  }
+}
+
+// Soft-delete a file (issue #100). Only the user who currently holds the file's
+// checkout may delete it; deleteFile enforces that and throws 'Conflict' (→ 409
+// via apiError) otherwise.
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; fileId: string }> },
+) {
+  try {
+    const { uid, email } = await verifyAuth(request);
+    const { id, fileId } = await params;
+    await requireContributor(id, email);
+    await deleteFile(id, fileId, uid);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

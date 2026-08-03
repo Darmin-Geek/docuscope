@@ -443,6 +443,66 @@ test.describe("Move file", () => {
   });
 });
 
+// ── Delete file (issue #100) ──────────────────────────────────────────────────
+
+test.describe("Delete file", () => {
+  test("delete is disabled until the file is checked out", async ({ page }) => {
+    await signUpAndOpenProject(page, `delete-disabled-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    // Disabled before checkout.
+    await expect(
+      fileSidebar.getByRole("button", { name: "Delete file" }),
+    ).toBeDisabled();
+
+    // Enabled once this user holds the checkout.
+    await fileSidebar.getByRole("button", { name: "Check Out" }).click();
+    await expect(
+      fileSidebar.getByRole("button", { name: "Delete file" }),
+    ).toBeEnabled();
+  });
+
+  test("confirming the delete closes the sidebar and removes the row", async ({ page }) => {
+    await signUpAndOpenProject(page, `delete-confirm-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeVisible();
+
+    await fileSidebar.getByRole("button", { name: "Check Out" }).click();
+    await fileSidebar.getByRole("button", { name: "Delete file" }).click();
+
+    // Confirmation modal, then confirm.
+    await expect(page.getByRole("heading", { name: "Delete this file?" })).toBeVisible();
+    await page.getByRole("button", { name: "Yes, delete" }).click();
+
+    // The detail view closes and the file leaves the table.
+    await expect(fileSidebar.getByRole("heading", { name: "globe.svg" })).toBeHidden();
+    await expect(page.getByRole("cell", { name: "globe.svg" })).toHaveCount(0);
+  });
+
+  test("cancelling the delete keeps the file", async ({ page }) => {
+    await signUpAndOpenProject(page, `delete-cancel-${Date.now()}@test.com`);
+    await uploadFile(page, SVG.globe);
+
+    await page.getByRole("cell", { name: "globe.svg" }).click();
+    const fileSidebar = page.locator("aside").last();
+    await fileSidebar.getByRole("button", { name: "Check Out" }).click();
+    await fileSidebar.getByRole("button", { name: "Delete file" }).click();
+
+    await expect(page.getByRole("heading", { name: "Delete this file?" })).toBeVisible();
+    await page.getByRole("button", { name: "No, keep it" }).click();
+
+    await expect(page.getByRole("heading", { name: "Delete this file?" })).toBeHidden();
+    await expect(page.getByRole("cell", { name: "globe.svg" })).toBeVisible();
+  });
+});
+
 // ── Information view ──────────────────────────────────────────────────────────
 
 test.describe("Information view", () => {
