@@ -12,6 +12,7 @@ import {
   fileFolders,
   information as informationTable,
   informationSelections as selectionsTable,
+  informationDatetimes,
   ocrJobs,
   fileDrafts,
   fileFieldVersions,
@@ -19,6 +20,7 @@ import {
   type FileDraftSnapshot,
 } from './drizzle/schema';
 import { getUidForEmail } from './users.server';
+import { validateAndDerive } from './timelines.server';
 import { htmlOrNull } from './richText';
 import type { SearchField } from './searchScope';
 import { getCognitoProfile } from './cognito';
@@ -1317,9 +1319,87 @@ export async function submitDraft(
           .values({ id: sel.id, informationId: info.id, ...selFields })
           .onConflictDoUpdate({ target: selectionsTable.id, set: selFields });
       }
+
+      // (4) labels for this row (Option 2) — reconcile by id like selections:
+      // delete assignments no longer in the snapshot, insert those present
+      // (idempotent). Labels now travel in the draft rather than through the
+      // immediate label API, so a not-yet-submitted row can carry them.
+      const keepLabelIds = info.labels;
+      const existingLabels = await tx
+        .select({ labelId: informationLabels.labelId })
+        .from(informationLabels)
+        .where(eq(informationLabels.informationId, info.id));
+      const labelsToDelete = existingLabels
+        .map((r) => r.labelId)
+        .filter((id) => !keepLabelIds.includes(id));
+      if (labelsToDelete.length > 0) {
+        await tx
+          .delete(informationLabels)
+          .where(
+            and(
+              eq(informationLabels.informationId, info.id),
+              inArray(informationLabels.labelId, labelsToDelete),
+            ),
+          );
+      }
+      if (keepLabelIds.length > 0) {
+        await tx
+          .insert(informationLabels)
+          .values(keepLabelIds.map((labelId) => ({ informationId: info.id, labelId })))
+          .onConflictDoNothing();
+      }
+
+      // (5) datetimes for this row (Option 2) — upsert BY ID so an unchanged
+      // datetime keeps its id and its timeline_entries pins survive; never
+      // delete-and-reinsert. Bounds are re-derived here (validateAndDerive) from
+      // the raw value+precision — the snapshot never carries bounds. A bad value
+      // throws 'Invalid', rolling back the whole submit. Datetimes whose id is
+      // absent from the snapshot are deleted (their pins cascade — intended).
+      const keepDatetimeIds = info.datetimes.map((d) => d.id);
+      const existingDatetimes = await tx
+        .select({ id: informationDatetimes.id })
+        .from(informationDatetimes)
+        .where(eq(informationDatetimes.informationId, info.id));
+      const datetimesToDelete = existingDatetimes
+        .map((r) => r.id)
+        .filter((id) => !keepDatetimeIds.includes(id));
+      if (datetimesToDelete.length > 0) {
+        await tx
+          .delete(informationDatetimes)
+          .where(
+            and(
+              eq(informationDatetimes.informationId, info.id),
+              inArray(informationDatetimes.id, datetimesToDelete),
+            ),
+          );
+      }
+      for (const dt of info.datetimes) {
+        const bounds = validateAndDerive({
+          isRange: dt.isRange,
+          startValue: dt.startValue,
+          startPrecision: dt.startPrecision,
+          endValue: dt.endValue,
+          endPrecision: dt.endPrecision,
+        });
+        const dtFields = {
+          isRange: dt.isRange,
+          startValue: dt.startValue,
+          startPrecision: dt.startPrecision,
+          endValue: dt.isRange ? dt.endValue : null,
+          endPrecision: dt.isRange ? dt.endPrecision : null,
+          lowerMs: bounds.lowerMs,
+          upperMs: bounds.upperMs,
+          coreLowerMs: bounds.coreLowerMs,
+          coreUpperMs: bounds.coreUpperMs,
+        };
+        await tx
+          .insert(informationDatetimes)
+          .values({ id: dt.id, informationId: info.id, ...dtFields })
+          .onConflictDoUpdate({ target: informationDatetimes.id, set: dtFields });
+      }
     }
 
-    // (4) clear the stored draft.
+    // (6) clear the stored draft.
     await tx
       .delete(fileDrafts)
       .where(and(eq(fileDrafts.fileId, fileId), eq(fileDrafts.userId, uid)));
@@ -1392,34 +1472,4 @@ export async function removeLabelFromFile(
   await db
     .delete(fileLabels)
     .where(and(eq(fileLabels.fileId, fileId), eq(fileLabels.labelId, labelId)));
-}
-
-export async function addLabelToInformation(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  labelId: string,
-): Promise<void> {
-  await requireInformation(projectId, fileId, informationId);
-  await db
-    .insert(informationLabels)
-    .values({ informationId, labelId })
-    .onConflictDoNothing();
-}
-
-export async function removeLabelFromInformation(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  labelId: string,
-): Promise<void> {
-  await requireInformation(projectId, fileId, informationId);
-  await db
-    .delete(informationLabels)
-    .where(
-      and(
-        eq(informationLabels.informationId, informationId),
-        eq(informationLabels.labelId, labelId),
-      ),
-    );
 }

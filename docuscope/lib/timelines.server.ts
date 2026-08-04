@@ -91,8 +91,10 @@ function toDatetime(row: DatetimeRow): InformationDatetime {
 
 // Validate a raw editor payload and compute its derived bounds. Throws 'Invalid'
 // for a bad precision / missing range endpoint / reversed range (surfaced as
-// HTTP 400 by apiError).
-function validateAndDerive(payload: DatetimeInputPayload) {
+// HTTP 400 by apiError). Exported so submitDraft (lib/projects.server.ts) can
+// re-derive bounds server-side for datetimes staged in a draft snapshot — the
+// client never sends bounds, so this stays the single derivation path.
+export function validateAndDerive(payload: DatetimeInputPayload) {
   if (!isPrecision(payload.startPrecision)) throw new Error('Invalid');
   if (typeof payload.startValue !== 'string' || payload.startValue.trim() === '') {
     throw new Error('Invalid');
@@ -131,81 +133,9 @@ export async function getDatetimes(
   return rows.map(toDatetime);
 }
 
-export async function addDatetime(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  payload: DatetimeInputPayload,
-): Promise<InformationDatetime> {
-  await requireInformation(projectId, fileId, informationId);
-  const bounds = validateAndDerive(payload);
-  const [row] = await db
-    .insert(informationDatetimes)
-    .values({
-      informationId,
-      isRange: payload.isRange,
-      startValue: payload.startValue,
-      startPrecision: payload.startPrecision,
-      endValue: payload.isRange ? payload.endValue : null,
-      endPrecision: payload.isRange ? payload.endPrecision : null,
-      lowerMs: bounds.lowerMs,
-      upperMs: bounds.upperMs,
-      coreLowerMs: bounds.coreLowerMs,
-      coreUpperMs: bounds.coreUpperMs,
-    })
-    .returning();
-  return toDatetime(row);
-}
-
-export async function updateDatetime(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  datetimeId: string,
-  payload: DatetimeInputPayload,
-): Promise<InformationDatetime> {
-  await requireInformation(projectId, fileId, informationId);
-  const bounds = validateAndDerive(payload);
-  const [row] = await db
-    .update(informationDatetimes)
-    .set({
-      isRange: payload.isRange,
-      startValue: payload.startValue,
-      startPrecision: payload.startPrecision,
-      endValue: payload.isRange ? payload.endValue : null,
-      endPrecision: payload.isRange ? payload.endPrecision : null,
-      lowerMs: bounds.lowerMs,
-      upperMs: bounds.upperMs,
-      coreLowerMs: bounds.coreLowerMs,
-      coreUpperMs: bounds.coreUpperMs,
-    })
-    .where(
-      and(
-        eq(informationDatetimes.id, datetimeId),
-        eq(informationDatetimes.informationId, informationId),
-      ),
-    )
-    .returning();
-  if (!row) throw new Error('Not found');
-  return toDatetime(row);
-}
-
-export async function deleteDatetime(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  datetimeId: string,
-): Promise<void> {
-  await requireInformation(projectId, fileId, informationId);
-  await db
-    .delete(informationDatetimes)
-    .where(
-      and(
-        eq(informationDatetimes.id, datetimeId),
-        eq(informationDatetimes.informationId, informationId),
-      ),
-    );
-}
+// Datetimes are created/updated/deleted through the file draft snapshot and
+// reconciled inside submitDraft (Option 2), which re-derives bounds via the
+// exported validateAndDerive above. There is no immediate datetime-write path.
 
 // ── timelines ────────────────────────────────────────────────────────────────
 

@@ -11,7 +11,13 @@ import {
   type FileDoc,
   type FileDraftSnapshot,
 } from "@/lib/projects";
+import { getDatetimes } from "@/lib/timelines";
 import { validateDraftForSubmit } from "@/lib/draftValidation";
+
+// One staged information row in the working snapshot (metadata + labels +
+// datetimes + selections), reused by the mutator signatures below.
+type DraftInformation = FileDraftSnapshot["information"][number];
+type DraftDatetime = DraftInformation["datetimes"][number];
 
 // One working snapshot per open file, shared by FileSidebar (metadata),
 // InformationSidebar (information rows) and PdfViewerModal (selections) so that
@@ -44,14 +50,25 @@ export type FileDraft = {
   // transient status line: "saved" | "submitted" | null
   status: "saved" | "submitted" | null;
 
+  // Information row ids that exist in the published baseline. Everything else in
+  // the snapshot is a client-only row that has never been submitted — used only
+  // to hide field-history for rows that genuinely have no history yet (labels
+  // and dates no longer gate on this; they ride in the draft).
+  baselineInfoIds: Set<string>;
+
   setMetadata: (patch: Partial<FileDraftSnapshot["metadata"]>) => void;
-  upsertInformation: (info: FileDraftSnapshot["information"][number]) => void;
+  upsertInformation: (info: DraftInformation) => void;
   removeInformation: (id: string) => void;
   upsertSelection: (
     informationId: string,
-    selection: FileDraftSnapshot["information"][number]["selections"][number],
+    selection: DraftInformation["selections"][number],
   ) => void;
   removeSelection: (informationId: string, selectionId: string) => void;
+  // Replace the full set of assigned label ids on an information row.
+  setInformationLabels: (informationId: string, labelIds: string[]) => void;
+  // Add or replace (by id) a staged datetime on an information row.
+  upsertDatetime: (informationId: string, datetime: DraftDatetime) => void;
+  removeDatetime: (informationId: string, datetimeId: string) => void;
 
   // Why Submit is currently blocked (an Admiralty code set without its matching
   // description, issue #80), or null when the snapshot may be submitted.
@@ -147,9 +164,14 @@ export function useFileDraft(
   const loadPublished = useCallback(
     async (f: FileDoc): Promise<FileDraftSnapshot> => {
       const information = await getInformation(projectId, f.id);
-      const withSelections = await Promise.all(
+      const withChildren = await Promise.all(
         information.map(async (info) => {
-          const selections = await getSelections(projectId, f.id, info.id);
+          // Selections and datetimes are fetched together per row; labels ride
+          // along on the information row itself (getInformation returns them).
+          const [selections, datetimes] = await Promise.all([
+            getSelections(projectId, f.id, info.id),
+            getDatetimes(projectId, f.id, info.id),
+          ]);
           return {
             id: info.id,
             informationTitle: info.informationTitle,
@@ -159,6 +181,15 @@ export function useFileDraft(
             informationCredibility: info.informationCredibility,
             informationReliabilityCode: info.informationReliabilityCode,
             informationCredibilityCode: info.informationCredibilityCode,
+            labels: info.labels,
+            datetimes: datetimes.map((d) => ({
+              id: d.id,
+              isRange: d.isRange,
+              startValue: d.startValue,
+              startPrecision: d.startPrecision,
+              endValue: d.endValue,
+              endPrecision: d.endPrecision,
+            })),
             selections: selections.map((s) => ({
               id: s.id,
               pageIndex: s.pageIndex,
@@ -170,7 +201,7 @@ export function useFileDraft(
           };
         }),
       );
-      return { metadata: metadataFromFile(f), information: withSelections };
+      return { metadata: metadataFromFile(f), information: withChildren };
     },
     [projectId],
   );
@@ -292,6 +323,59 @@ export function useFileDraft(
     [],
   );
 
+  const setInformationLabels = useCallback(
+    (informationId: string, labelIds: string[]) => {
+      setSnapshot((prev) => ({
+        ...prev,
+        information: prev.information.map((info) =>
+          info.id === informationId ? { ...info, labels: labelIds } : info,
+        ),
+      }));
+      setDirty(true);
+      setStatus(null);
+    },
+    [],
+  );
+
+  const upsertDatetime = useCallback(
+    (informationId: string, datetime: DraftDatetime) => {
+      setSnapshot((prev) => ({
+        ...prev,
+        information: prev.information.map((info) => {
+          if (info.id !== informationId) return info;
+          const idx = info.datetimes.findIndex((d) => d.id === datetime.id);
+          const datetimes =
+            idx === -1
+              ? [...info.datetimes, datetime]
+              : info.datetimes.map((d) => (d.id === datetime.id ? datetime : d));
+          return { ...info, datetimes };
+        }),
+      }));
+      setDirty(true);
+      setStatus(null);
+    },
+    [],
+  );
+
+  const removeDatetime = useCallback(
+    (informationId: string, datetimeId: string) => {
+      setSnapshot((prev) => ({
+        ...prev,
+        information: prev.information.map((info) =>
+          info.id === informationId
+            ? {
+                ...info,
+                datetimes: info.datetimes.filter((d) => d.id !== datetimeId),
+              }
+            : info,
+        ),
+      }));
+      setDirty(true);
+      setStatus(null);
+    },
+    [],
+  );
+
   // ── actions ───────────────────────────────────────────────────────────────
 
   const save = useCallback(async () => {
@@ -366,6 +450,10 @@ export function useFileDraft(
   // Admiralty-code rule as the user types (issue #80).
   const submitBlockReason = validateDraftForSubmit(snapshot);
 
+  // Ids present in the published baseline — the rows that already exist in the
+  // database and thus have field-history. New client-only rows are not here.
+  const baselineInfoIds = new Set(baseline.information.map((i) => i.id));
+
   return {
     snapshot,
     dirty,
@@ -377,11 +465,15 @@ export function useFileDraft(
     error,
     status,
     submitBlockReason,
+    baselineInfoIds,
     setMetadata,
     upsertInformation,
     removeInformation,
     upsertSelection,
     removeSelection,
+    setInformationLabels,
+    upsertDatetime,
+    removeDatetime,
     save,
     submit,
     applyDraft,

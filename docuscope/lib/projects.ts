@@ -1,6 +1,7 @@
 import { api } from './apiClient';
 import { isPdf, extractPdfText } from './pdfText';
 import { ALL_SEARCH_FIELDS, type SearchField } from './searchScope';
+import type { Precision } from './datetimePrecision';
 
 // All data access for projects goes through these functions so UI components
 // never call the API directly (mirrors the old Firebase design principle).
@@ -66,9 +67,9 @@ export type Information = {
   labels: string[];
 };
 
-// The editable fields of a piece of information. Labels are assigned through
-// their own endpoints (addLabelToInformation/removeLabelFromInformation), not
-// through the information create/update body, so they are excluded here.
+// The editable fields of a piece of information. Labels ride in the file draft
+// snapshot and are reconciled on Submit (Option 2), not carried in the
+// information create/update body, so they are excluded here.
 export type InformationFields = Omit<Information, 'id' | 'labels'>;
 
 // A flat highlight rectangle in PDF page coordinates (points, unscaled). Mirrors
@@ -120,6 +121,21 @@ export type FileDraftSnapshot = {
     informationCredibility: string | null;
     informationReliabilityCode: string | null;
     informationCredibilityCode: string | null;
+    // Assigned 'information'-kind label ids (Option 2 — labels/dates ride in the
+    // draft so they can attach to a not-yet-submitted row and persist on Submit).
+    labels: string[];
+    // Datetimes staged on the row. Only the RAW input is stored — bounds are
+    // always re-derived server-side on Submit. `id` is the existing DB id for a
+    // published datetime or a client UUID for a new one; keeping it stable lets
+    // Submit upsert by id so timeline_entries pins survive.
+    datetimes: Array<{
+      id: string;
+      isRange: boolean;
+      startValue: string;
+      startPrecision: Precision;
+      endValue: string | null;
+      endPrecision: Precision | null;
+    }>;
     selections: Array<{
       id: string;
       pageIndex: number;
@@ -585,28 +601,4 @@ export async function removeLabelFromFile(
   await api(`/api/projects/${projectId}/files/${fileId}/labels/${labelId}`, {
     method: 'DELETE',
   });
-}
-
-export async function addLabelToInformation(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  labelId: string,
-): Promise<void> {
-  await api(
-    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/labels`,
-    { method: 'POST', body: JSON.stringify({ labelId }) },
-  );
-}
-
-export async function removeLabelFromInformation(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  labelId: string,
-): Promise<void> {
-  await api(
-    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/labels/${labelId}`,
-    { method: 'DELETE' },
-  );
 }
