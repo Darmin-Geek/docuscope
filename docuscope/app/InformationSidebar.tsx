@@ -8,11 +8,8 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
-  addLabelToInformation,
-  getInformation,
   getInformationHistory,
   newInformationId,
-  removeLabelFromInformation,
   type FileDoc,
   type Label,
 } from "@/lib/projects";
@@ -26,18 +23,17 @@ import FieldHistoryButton from "./FieldHistoryButton";
 import RichTextEditor from "./RichTextEditor";
 import { htmlOrNull } from "@/lib/richText";
 import DatetimeEditor from "./DatetimeEditor";
-import {
-  getDatetimes,
-  addDatetime,
-  updateDatetime,
-  deleteDatetime,
-  type InformationDatetime,
-  type DatetimeInputPayload,
-} from "@/lib/timelines";
+import type { DatetimeInputPayload } from "@/lib/timelines";
 import { humanDatetime, valueToParts } from "@/lib/datetimePrecision";
 
-// One-line human summary of a stored datetime, e.g. "the 1980s → Mar 1995".
-function datetimeSummary(dt: InformationDatetime): string {
+// One entry in the working draft's information list, including its staged
+// labels, datetimes and selections. Everything is carried through the shared
+// snapshot so a Save/Submit persists it all together (Option 2).
+type DraftInformation = FileDraft["snapshot"]["information"][number];
+type DraftDatetime = DraftInformation["datetimes"][number];
+
+// One-line human summary of a staged datetime, e.g. "the 1980s → Mar 1995".
+function datetimeSummary(dt: DraftDatetime): string {
   return humanDatetime({
     isRange: dt.isRange,
     start: valueToParts(dt.startValue),
@@ -46,11 +42,6 @@ function datetimeSummary(dt: InformationDatetime): string {
     endPrecision: dt.isRange ? dt.endPrecision ?? undefined : undefined,
   });
 }
-
-// One entry in the working draft's information list, including its staged
-// selections. The editor shows/edits the Information fields; selections are
-// carried through unchanged so a Save/Submit persists them alongside.
-type DraftInformation = FileDraft["snapshot"]["information"][number];
 
 type InformationSidebarProps = {
   projectId: string;
@@ -142,51 +133,29 @@ export default function InformationSidebar({
   const reliabilityCode = selectedItem?.informationReliabilityCode ?? null;
   const credibilityCode = selectedItem?.informationCredibilityCode ?? null;
 
-  // Label ids per information id, kept separate from the draft because labels
-  // are persisted immediately via the label API (not through save/submit).
-  const [itemLabels, setItemLabels] = useState<Map<string, string[]>>(new Map());
-  // IDs that exist in the database. New entries created via startNew() are
-  // client-side only until Save/Submit, so the label API will 404 for them.
-  const [persistedIds, setPersistedIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    let active = true;
-    getInformation(projectId, file.id)
-      .then((rows) => {
-        if (!active) return;
-        setItemLabels(new Map(rows.map((r) => [r.id, r.labels])));
-        setPersistedIds(new Set(rows.map((r) => r.id)));
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [projectId, file.id]);
-
-  // Whether the "add label" picker (the unassigned information labels) is open,
-  // plus any error from assigning/removing a label.
+  // Whether the "add label" picker (the unassigned information labels) is open.
   const [pickingLabel, setPickingLabel] = useState(false);
-  const [labelError, setLabelError] = useState<string | null>(null);
 
   // The entry awaiting delete confirmation, or null when the modal is closed.
   const [deleteTarget, setDeleteTarget] = useState<DraftInformation | null>(null);
 
-  // Datetimes attached to the selected entry. Like labels, these are persisted
-  // immediately through their own API (not the draft), so they only load for an
-  // entry that already exists in the database. `datetimeEditor` names what the
-  // popover is doing: "new" for a fresh date, an existing record to edit, or
-  // null when closed.
-  const [datetimes, setDatetimes] = useState<InformationDatetime[]>([]);
+  // Datetimes are read straight from the selected draft row. `datetimeEditor`
+  // names what the popover is doing: "new" for a fresh date, an existing staged
+  // datetime to edit, or null when closed.
+  const datetimes = selectedItem?.datetimes ?? [];
   const [datetimeEditor, setDatetimeEditor] = useState<
-    "new" | InformationDatetime | null
+    "new" | DraftDatetime | null
   >(null);
-  const [datetimeError, setDatetimeError] = useState<string | null>(null);
 
   // Bumped after a successful Submit so the field history popovers refresh with
   // the just-published edits.
   const [historyReloadToken, setHistoryReloadToken] = useState(0);
 
-  function patchSelected(fields: Partial<Omit<DraftInformation, "id" | "selections">>) {
+  function patchSelected(
+    fields: Partial<
+      Omit<DraftInformation, "id" | "selections" | "labels" | "datetimes">
+    >,
+  ) {
     if (!selectedItem) return;
     draft.upsertInformation({ ...selectedItem, ...fields });
   }
@@ -208,9 +177,10 @@ export default function InformationSidebar({
       informationCredibility: null,
       informationReliabilityCode: null,
       informationCredibilityCode: null,
+      labels: [],
+      datetimes: [],
       selections: [],
     });
-    setItemLabels((prev) => { const m = new Map(prev); m.set(id, []); return m; });
     setSelectedId(id);
   }
 
@@ -240,144 +210,70 @@ export default function InformationSidebar({
     setDeleteTarget(null);
   }
 
-  function applyLabelChange(
-    infoId: string,
-    next: (current: string[]) => string[],
-  ) {
-    setItemLabels((prev) => {
-      const m = new Map(prev);
-      m.set(infoId, next(m.get(infoId) ?? []));
-      return m;
-    });
-  }
-
-  async function handleAddLabel(labelId: string) {
-    if (!selectedId) return;
-    setLabelError(null);
+  function handleAddLabel(labelId: string) {
+    if (!selectedItem) return;
     setPickingLabel(false);
-    applyLabelChange(selectedId, (current) =>
-      current.includes(labelId) ? current : [...current, labelId],
-    );
-    try {
-      await addLabelToInformation(projectId, file.id, selectedId, labelId);
-    } catch (err: unknown) {
-      applyLabelChange(selectedId, (current) =>
-        current.filter((id) => id !== labelId),
-      );
-      setLabelError(err instanceof Error ? err.message : "Failed to add label.");
-    }
+    if (selectedItem.labels.includes(labelId)) return;
+    draft.setInformationLabels(selectedItem.id, [...selectedItem.labels, labelId]);
   }
 
-  async function handleRemoveLabel(labelId: string) {
-    if (!selectedId) return;
-    setLabelError(null);
-    applyLabelChange(selectedId, (current) =>
-      current.filter((id) => id !== labelId),
+  function handleRemoveLabel(labelId: string) {
+    if (!selectedItem) return;
+    draft.setInformationLabels(
+      selectedItem.id,
+      selectedItem.labels.filter((id) => id !== labelId),
     );
-    try {
-      await removeLabelFromInformation(projectId, file.id, selectedId, labelId);
-    } catch (err: unknown) {
-      applyLabelChange(selectedId, (current) =>
-        current.includes(labelId) ? current : [...current, labelId],
-      );
-      setLabelError(
-        err instanceof Error ? err.message : "Failed to remove label.",
-      );
-    }
   }
 
-  // Load the selected entry's datetimes whenever the selection changes to a
-  // persisted row. Unsaved (client-only) rows have no id in the database yet, so
-  // there is nothing to fetch and the section is gated closed.
+  // Close the datetime editor whenever the selection changes so it doesn't carry
+  // over to a different entry.
   useEffect(() => {
     setDatetimeEditor(null);
-    setDatetimeError(null);
-    if (selectedId === null || !persistedIds.has(selectedId)) {
-      setDatetimes([]);
-      return;
-    }
-    let active = true;
-    getDatetimes(projectId, file.id, selectedId)
-      .then((rows) => {
-        if (active) setDatetimes(rows);
-      })
-      .catch(() => {
-        if (active) setDatetimes([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [projectId, file.id, selectedId, persistedIds]);
+  }, [selectedId]);
 
-  async function handleSaveDatetime(payload: DatetimeInputPayload) {
-    if (!selectedId) return;
-    setDatetimeError(null);
+  function handleSaveDatetime(payload: DatetimeInputPayload) {
+    if (!selectedItem) return;
     const editing = datetimeEditor;
-    if (editing && editing !== "new") {
-      const updated = await updateDatetime(
-        projectId,
-        file.id,
-        selectedId,
-        editing.id,
-        payload,
-      );
-      setDatetimes((prev) =>
-        prev.map((d) => (d.id === updated.id ? updated : d)),
-      );
-    } else {
-      const created = await addDatetime(projectId, file.id, selectedId, payload);
-      setDatetimes((prev) => [...prev, created]);
-    }
+    // Reuse the id when editing (so the row — and any timeline pin — is updated
+    // in place on Submit); mint a client UUID for a brand-new date.
+    const id =
+      editing && editing !== "new" ? editing.id : crypto.randomUUID();
+    draft.upsertDatetime(selectedItem.id, { id, ...payload });
     setDatetimeEditor(null);
   }
 
-  async function handleDeleteDatetime(datetimeId: string) {
-    if (!selectedId) return;
-    setDatetimeError(null);
-    const prev = datetimes;
-    setDatetimes((current) => current.filter((d) => d.id !== datetimeId));
-    try {
-      await deleteDatetime(projectId, file.id, selectedId, datetimeId);
-    } catch (err) {
-      setDatetimes(prev);
-      setDatetimeError(
-        err instanceof Error ? err.message : "Failed to delete date.",
-      );
-    }
+  function handleDeleteDatetime(datetimeId: string) {
+    if (!selectedItem) return;
+    draft.removeDatetime(selectedItem.id, datetimeId);
   }
 
-  // Submit publishes the whole snapshot's information rows to the database
-  // (Save only stages a draft), so as soon as a submit succeeds every current
-  // entry is persisted — unlock their label pickers immediately rather than
-  // waiting for a re-fetch on the next mount.
+  // Bump the field-history reload token after a successful Submit so the
+  // popovers refresh with the just-published edits.
   useEffect(() => {
     if (draft.status === "submitted") {
-      setPersistedIds(new Set(allItems.map((item) => item.id)));
       setHistoryReloadToken((n) => n + 1);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.status]);
 
-  // True when the selected entry was created client-side and not yet saved to
-  // the database. The label API requires the row to exist, so labels are blocked
-  // until the user saves/submits.
-  const isUnsaved = selectedId !== null && !persistedIds.has(selectedId);
+  // A row has field-history only once it exists in the published baseline. New
+  // client-only rows (never submitted) have none yet — hide the history buttons
+  // and skip the fetch for them. Labels/dates no longer gate on this.
+  const inBaseline = selectedId !== null && draft.baselineInfoIds.has(selectedId);
 
   // Field version history for the selected entry. Disabled (no fetch) when
-  // nothing is selected or the entry is unsaved — an unsaved row has no id in
-  // the database and thus no history yet (mirrors the label-picker gate).
+  // nothing is selected or the row has never been submitted.
   const historyLoader = useCallback(
     () => getInformationHistory(projectId, file.id, selectedId as string),
     [projectId, file.id, selectedId],
   );
   const history = useFieldHistory(
-    selectedId !== null && !isUnsaved ? historyLoader : null,
+    inBaseline ? historyLoader : null,
     `${selectedId}:${historyReloadToken}`,
   );
 
   // Resolve the selected entry's label ids against the project's information
   // labels, preserving the project's order; the rest are offered in the picker.
-  const currentLabels = itemLabels.get(selectedId ?? "") ?? [];
+  const currentLabels = selectedItem?.labels ?? [];
   const appliedLabels = labels.filter((label) =>
     currentLabels.includes(label.id),
   );
@@ -498,7 +394,7 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Title"
                     versions={history.versionsFor("informationTitle")}
-                    hidden={isUnsaved}
+                    hidden={!inBaseline}
                   />
                 </span>
                 <input
@@ -523,7 +419,7 @@ export default function InformationSidebar({
                     <LabelPill key={label.id} label={label.label} color={label.color}>
                       <button
                         type="button"
-                        onClick={() => void handleRemoveLabel(label.id)}
+                        onClick={() => handleRemoveLabel(label.id)}
                         disabled={!isHeldByMe || lockedByOther}
                         aria-label={`Remove ${label.label}`}
                         className="leading-none opacity-70 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40"
@@ -536,8 +432,7 @@ export default function InformationSidebar({
                     <button
                       type="button"
                       onClick={() => setPickingLabel((open) => !open)}
-                      disabled={!isHeldByMe || lockedByOther || isUnsaved}
-                      title={isUnsaved ? "Submit this entry before adding labels" : undefined}
+                      disabled={!isHeldByMe || lockedByOther}
                       className="rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
                     >
                       + Label
@@ -551,19 +446,16 @@ export default function InformationSidebar({
                         key={label.id}
                         label={label.label}
                         color={label.color}
-                        onClick={() => void handleAddLabel(label.id)}
+                        onClick={() => handleAddLabel(label.id)}
                       />
                     ))}
                   </div>
                 )}
-                {labelError && (
-                  <p className="text-xs text-red-600 dark:text-red-400">{labelError}</p>
-                )}
               </div>
 
               {/* Dates — precision-aware datetimes shown on timelines (see the
-                  timeline feature). Persisted immediately through their own API,
-                  so gated closed until the entry exists in the database. */}
+                  timeline feature). Staged in the working draft (Option 2) and
+                  persisted on Submit, so they can be added before a first save. */}
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium text-black dark:text-zinc-50">
                   Dates
@@ -589,7 +481,7 @@ export default function InformationSidebar({
                         </button>
                         <button
                           type="button"
-                          onClick={() => void handleDeleteDatetime(dt.id)}
+                          onClick={() => handleDeleteDatetime(dt.id)}
                           disabled={!isHeldByMe || lockedByOther}
                           aria-label={`Delete date ${datetimeSummary(dt)}`}
                           className="shrink-0 leading-none text-zinc-400 transition-colors hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-500 dark:hover:text-zinc-300"
@@ -610,19 +502,11 @@ export default function InformationSidebar({
                   <button
                     type="button"
                     onClick={() => setDatetimeEditor("new")}
-                    disabled={!isHeldByMe || lockedByOther || isUnsaved}
-                    title={
-                      isUnsaved ? "Submit this entry before adding dates" : undefined
-                    }
+                    disabled={!isHeldByMe || lockedByOther}
                     className="self-start rounded-full border border-dashed border-black/[.25] px-2 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/[.25] dark:text-zinc-300 dark:hover:bg-white/[.06]"
                   >
                     + Add date
                   </button>
-                )}
-                {datetimeError && (
-                  <p className="text-xs text-red-600 dark:text-red-400">
-                    {datetimeError}
-                  </p>
                 )}
               </div>
 
@@ -638,7 +522,7 @@ export default function InformationSidebar({
                     fieldLabel="Information Text"
                     versions={history.versionsFor("informationText")}
                     renderRich
-                    hidden={isUnsaved}
+                    hidden={!inBaseline}
                   />
                 </span>
                 <RichTextEditor
@@ -659,7 +543,7 @@ export default function InformationSidebar({
                     fieldLabel="Overall Bias"
                     versions={history.versionsFor("overallBias")}
                     renderRich
-                    hidden={isUnsaved}
+                    hidden={!inBaseline}
                   />
                 </span>
                 <RichTextEditor
@@ -685,7 +569,7 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Reliability Rating"
                     versions={history.versionsFor("informationReliabilityCode")}
-                    hidden={isUnsaved}
+                    hidden={!inBaseline}
                   />
                 }
               />
@@ -697,7 +581,7 @@ export default function InformationSidebar({
                     fieldLabel="Information Reliability"
                     versions={history.versionsFor("informationReliability")}
                     renderRich
-                    hidden={isUnsaved}
+                    hidden={!inBaseline}
                   />
                 </span>
                 <RichTextEditor
@@ -723,7 +607,7 @@ export default function InformationSidebar({
                   <FieldHistoryButton
                     fieldLabel="Credibility Rating"
                     versions={history.versionsFor("informationCredibilityCode")}
-                    hidden={isUnsaved}
+                    hidden={!inBaseline}
                   />
                 }
               />
@@ -735,7 +619,7 @@ export default function InformationSidebar({
                     fieldLabel="Information Credibility"
                     versions={history.versionsFor("informationCredibility")}
                     renderRich
-                    hidden={isUnsaved}
+                    hidden={!inBaseline}
                   />
                 </span>
                 <RichTextEditor

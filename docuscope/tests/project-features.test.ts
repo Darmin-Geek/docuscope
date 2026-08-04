@@ -628,7 +628,7 @@ test.describe("Information view", () => {
     await expect(infoSidebar.getByText("No information yet.")).toBeVisible();
   });
 
-  test("the + Label button is disabled for an unsaved information entry, with a tooltip explaining why", async ({
+  test("the + Label button is enabled for an unsubmitted information entry (Option 2)", async ({
     page,
   }) => {
     await signUpAndOpenProject(page, `info-label-unsaved-${Date.now()}@test.com`);
@@ -650,13 +650,21 @@ test.describe("Information view", () => {
     await infoSidebar.getByRole("button", { name: "+ Add New Information" }).click();
     await expect(infoSidebar.locator("input[placeholder='Untitled']")).toBeVisible();
 
-    // The + Label button must be disabled and carry a tooltip that explains why.
+    // Labels now ride in the draft, so the + Label button is enabled and carries
+    // no "submit first" tooltip even before the entry has ever been submitted.
     const labelButton = infoSidebar.getByRole("button", { name: "+ Label" });
-    await expect(labelButton).toBeDisabled();
-    await expect(labelButton).toHaveAttribute(
+    await expect(labelButton).toBeEnabled();
+    await expect(labelButton).not.toHaveAttribute(
       "title",
       "Submit this entry before adding labels",
     );
+
+    // And the label can be assigned right away, before any Save/Submit.
+    await labelButton.click();
+    await infoSidebar.getByRole("button", { name: "Fact", exact: true }).click();
+    await expect(
+      infoSidebar.getByRole("button", { name: "Remove Fact" }),
+    ).toBeVisible();
   });
 
   test("an information label can be assigned after the entry is submitted", async ({

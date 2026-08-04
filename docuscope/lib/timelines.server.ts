@@ -91,8 +91,10 @@ function toDatetime(row: DatetimeRow): InformationDatetime {
 
 // Validate a raw editor payload and compute its derived bounds. Throws 'Invalid'
 // for a bad precision / missing range endpoint / reversed range (surfaced as
-// HTTP 400 by apiError).
-function validateAndDerive(payload: DatetimeInputPayload) {
+// HTTP 400 by apiError). Exported so submitDraft (lib/projects.server.ts) can
+// re-derive bounds server-side for datetimes staged in a draft snapshot — the
+// client never sends bounds, so this stays the single derivation path.
+export function validateAndDerive(payload: DatetimeInputPayload) {
   if (!isPrecision(payload.startPrecision)) throw new Error('Invalid');
   if (typeof payload.startValue !== 'string' || payload.startValue.trim() === '') {
     throw new Error('Invalid');

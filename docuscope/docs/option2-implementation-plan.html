@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Option 2 — Implementation Plan: Labels &amp; Dates in the Draft</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #18181b;
+    --muted: #52525b;
+    --faint: #71717a;
+    --line: rgba(0,0,0,.10);
+    --line-strong: rgba(0,0,0,.18);
+    --card: #fafafa;
+    --code-bg: #f4f4f5;
+    --accent: #4f46e5;
+    --good: #15803d;
+    --good-bg: #f0fdf4;
+    --bad: #b91c1c;
+    --bad-bg: #fef2f2;
+    --warn: #a16207;
+    --warn-bg: #fefce8;
+    --pill: #ede9fe;
+    --pill-fg: #4338ca;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0a0a;
+      --fg: #fafafa;
+      --muted: #a1a1aa;
+      --faint: #71717a;
+      --line: rgba(255,255,255,.12);
+      --line-strong: rgba(255,255,255,.22);
+      --card: #131316;
+      --code-bg: #18181b;
+      --accent: #a5b4fc;
+      --good: #4ade80;
+      --good-bg: rgba(34,197,94,.10);
+      --bad: #f87171;
+      --bad-bg: rgba(239,68,68,.10);
+      --warn: #fbbf24;
+      --warn-bg: rgba(234,179,8,.10);
+      --pill: rgba(99,102,241,.18);
+      --pill-fg: #c7d2fe;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 0 1.25rem 5rem;
+  }
+  main { max-width: 880px; margin: 0 auto; }
+  header.doc {
+    padding: 3rem 0 1.5rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 2rem;
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 0 0 .6rem;
+  }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .6rem; letter-spacing: -.01em; }
+  h2 {
+    font-size: 1.35rem;
+    margin: 3rem 0 1rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    letter-spacing: -.01em;
+  }
+  h3 { font-size: 1.05rem; margin: 1.5rem 0 .4rem; }
+  p { margin: .7rem 0; }
+  .lede { font-size: 1.08rem; color: var(--muted); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .85em;
+    background: var(--code-bg);
+    padding: .12em .4em;
+    border-radius: 5px;
+    border: 1px solid var(--line);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-size: .82rem;
+    line-height: 1.55;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  a { color: var(--accent); }
+  ul, ol { padding-left: 1.3rem; }
+  li { margin: .35rem 0; }
+  .muted { color: var(--muted); }
+  strong { font-weight: 650; }
+
+  .callout {
+    border: 1px solid var(--line);
+    background: var(--card);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+  }
+  .callout.accent { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .callout .k { font-weight: 650; display:block; margin-bottom:.3rem; }
+
+  .step {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.3rem 1.5rem;
+    margin: 1.25rem 0;
+    background: var(--card);
+  }
+  .stephead { display: flex; align-items: baseline; gap: .7rem; margin: 0 0 .3rem; }
+  .stepnum {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem; height: 1.7rem;
+    border-radius: 8px;
+    background: var(--pill);
+    color: var(--pill-fg);
+    font-weight: 700;
+    font-size: .9rem;
+    flex: 0 0 auto;
+    transform: translateY(.15rem);
+  }
+  .stephead h3 { margin: 0; font-size: 1.12rem; }
+  .fil { display:block; font-size:.8rem; color: var(--faint); font-family: ui-monospace, monospace; margin-top:.1rem; }
+
+  .goodbox, .badbox {
+    border-radius: 10px; padding: .75rem 1rem; font-size: .93rem; margin: 1rem 0;
+  }
+  .goodbox { background: var(--good-bg); border: 1px solid color-mix(in srgb, var(--good) 30%, transparent); }
+  .badbox  { background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); }
+  .goodbox h4, .badbox h4 { margin: 0 0 .3rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+  .goodbox h4 { color: var(--good); }
+  .badbox h4 { color: var(--warn); }
+  .goodbox ul, .badbox ul { margin: 0; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:.5rem; margin: 1rem 0; }
+  .chip {
+    font-size: .78rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    padding: .2em .7em;
+    color: var(--muted);
+  }
+  .chip b { color: var(--fg); font-weight: 600; }
+
+  table { border-collapse: collapse; width: 100%; margin: 1.2rem 0; font-size: .9rem; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); }
+
+  footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--faint); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <header class="doc">
+    <p class="eyebrow">Implementation Plan · DocuScope · Option 2</p>
+    <h1>Carry Labels &amp; Dates in the Draft Snapshot</h1>
+    <p class="lede">Make labels and dates part of a file's working draft so they can be attached to
+      brand-new, unsubmitted information — persisting them on Submit alongside everything else, and
+      removing the <code>isUnsaved</code> gate entirely. <strong>No changes to the
+      <code>information_labels</code> or <code>information_datetimes</code> tables.</strong></p>
+  </header>
+
+  <h2>The goal</h2>
+  <p>
+    Today, labels and dates are written to the database <em>immediately</em> through their own APIs,
+    which require the information row to already exist. A row created with
+    <code>+ Add New Information</code> is client-only until Submit, so its <code>+ Label</code> and
+    <code>+ Add date</code> controls are disabled with "Submit this entry before adding…". This plan
+    folds labels and dates into the same working snapshot that already carries every other
+    information field, so they persist through Save/Submit and the gate disappears.
+  </p>
+
+  <div class="callout accent">
+    <span class="k">Why this needs no schema change</span>
+    <ul style="margin:.3rem 0 0">
+      <li>The <code>information_labels</code> and <code>information_datetimes</code> tables are
+        untouched — we only change <em>when</em> and <em>through which path</em> their rows are
+        written (inside the existing Submit transaction, instead of via immediate APIs).</li>
+      <li>The draft lives in <code>file_drafts.snapshot</code>, a <strong>jsonb</strong> column typed
+        only in TypeScript (<code>$type&lt;FileDraftSnapshot&gt;()</code>). Adding fields to
+        <code>FileDraftSnapshot</code> is a type edit, <strong>not</strong> a migration.</li>
+    </ul>
+  </div>
+
+  <h2>The change, file by file</h2>
+
+  <!-- STEP 1 -->
+  <div class="step">
+    <div class="stephead">
+      <span class="stepnum">1</span>
+      <div>
+        <h3>Extend the snapshot type</h3>
+        <span class="fil">lib/projects.ts · lib/drizzle/schema.ts (kept mirrored)</span>
+      </div>
+    </div>
+    <p>Add two fields to each <code>information[]</code> entry in <code>FileDraftSnapshot</code>:</p>
+    <pre><code>labels: string[];                       // assigned label ids
+datetimes: Array&lt;{
+  id: string;                           // stable id (existing DB id, or client UUID)
+  isRange: boolean;
+  startValue: string; startPrecision: Precision;
+  endValue: string | null; endPrecision: Precision | null;
+}&gt;;</code></pre>
+    <p class="muted">
+      Store only the <strong>raw</strong> datetime input — no <code>lowerMs</code>/bounds. Bounds are
+      always re-derived server-side, matching the existing rule that a client can never persist
+      inconsistent bounds. Each datetime keeps a stable <code>id</code> so
+      <code>timeline_entries</code> pins survive a submit.
+    </p>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="step">
+    <div class="stephead">
+      <span class="stepnum">2</span>
+      <div>
+        <h3>Seed labels &amp; dates when loading the draft</h3>
+        <span class="fil">app/useFileDraft.ts — loadPublished()</span>
+      </div>
+    </div>
+    <ul>
+      <li><strong>Labels:</strong> already returned by <code>getInformation()</code> as
+        <code>info.labels</code> — carry them onto each snapshot row.</li>
+      <li><strong>Datetimes:</strong> call <code>getDatetimes(projectId, fileId, info.id)</code> per
+        row (alongside the existing <code>getSelections</code>), mapping DB rows down to the raw
+        <code>{ id, isRange, startValue, startPrecision, endValue, endPrecision }</code> shape.</li>
+      <li><code>emptySnapshot()</code> and the post-<code>submit()</code> re-seed both get
+        <code>labels: []</code>, <code>datetimes: []</code>.</li>
+    </ul>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="step">
+    <div class="stephead">
+      <span class="stepnum">3</span>
+      <div>
+        <h3>Add draft mutators</h3>
+        <span class="fil">app/useFileDraft.ts</span>
+      </div>
+    </div>
+    <p>New entries on the <code>FileDraft</code> API, each mutating <code>snapshot</code>, setting
+      <code>dirty</code>, clearing <code>status</code> — the same pattern as
+      <code>upsertSelection</code>:</p>
+    <ul>
+      <li><code>setInformationLabels(infoId, labelIds)</code> (or add/remove helpers)</li>
+      <li><code>upsertDatetime(infoId, datetime)</code> / <code>removeDatetime(infoId, datetimeId)</code></li>
+    </ul>
+    <p class="muted">
+      Also expose <code>baselineInfoIds: Set&lt;string&gt;</code> (ids present in the published
+      baseline) so the UI can still tell "never-submitted" rows apart — now needed only for
+      field-history visibility, not for labels/dates.
+    </p>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="step">
+    <div class="stephead">
+      <span class="stepnum">4</span>
+      <div>
+        <h3>Reconcile labels &amp; dates on Submit</h3>
+        <span class="fil">lib/projects.server.ts — submitDraft()</span>
+      </div>
+    </div>
+    <p>Inside the existing transaction, per information row (after the row + selections upsert),
+      reconcile <strong>by id</strong> exactly like selections:</p>
+    <ul>
+      <li><strong>Labels:</strong> read current <code>information_labels</code> for the row → delete
+        ids absent from the snapshot, <code>insert…onConflictDoNothing()</code> ids present.</li>
+      <li><strong>Datetimes:</strong> for each snapshot datetime, validate + derive bounds, then
+        <code>insert…onConflictDoUpdate({ target: id })</code>; delete stored datetimes whose id is
+        absent from the snapshot. Upserting by id preserves <code>timeline_entries</code> pins;
+        deletions cascade their pins (intended).</li>
+    </ul>
+    <p class="muted">
+      Extract/export the private <code>validateAndDerive</code> from <code>timelines.server.ts</code>
+      into a shared helper so <code>submitDraft</code> can reuse it — no logic change, just an
+      export. A staged datetime is already validated by <code>DatetimeEditor</code> before it enters
+      the snapshot, but the server still guards (throws <code>Invalid</code> → the whole submit rolls
+      back).
+    </p>
+    <p class="muted">
+      <code>saveDraft</code> needs no label/date logic — it just stores the jsonb, so staged
+      labels/dates round-trip through the draft and are undone by <em>Discard Draft</em> for free.
+    </p>
+  </div>
+
+  <!-- STEP 5 -->
+  <div class="step">
+    <div class="stephead">
+      <span class="stepnum">5</span>
+      <div>
+        <h3>Rewire the sidebar to the draft</h3>
+        <span class="fil">app/InformationSidebar.tsx</span>
+      </div>
+    </div>
+    <ul>
+      <li>Delete the <code>itemLabels</code>, <code>persistedIds</code>, and <code>datetimes</code>
+        local state plus the immediate-API effects; read <code>appliedLabels</code>/<code>datetimes</code>
+        straight from <code>selectedItem</code> in the draft.</li>
+      <li><code>handleAddLabel</code>/<code>handleRemoveLabel</code> →
+        <code>draft.setInformationLabels(...)</code>. <code>handleSaveDatetime</code>/<code>handleDeleteDatetime</code>
+        → <code>draft.upsertDatetime</code>/<code>removeDatetime</code> (mint a client UUID for a new
+        date via <code>crypto.randomUUID()</code>).</li>
+      <li>Remove <code>isUnsaved</code> gating and the "Submit this entry before adding…"
+        tooltips/<code>disabled</code> on <code>+ Label</code> and <code>+ Add date</code>; keep only
+        the check-out gate (<code>isHeldByMe &amp;&amp; !lockedByOther</code>).</li>
+      <li><code>FieldHistoryButton hidden=</code> switches from <code>isUnsaved</code> to
+        "row not in <code>draft.baselineInfoIds</code>" (history genuinely doesn't exist until first
+        submit).</li>
+      <li><code>startNew()</code> no longer needs label-map seeding.</li>
+    </ul>
+  </div>
+
+  <!-- STEP 6 -->
+  <div class="step">
+    <div class="stephead">
+      <span class="stepnum">6</span>
+      <div>
+        <h3>Leave the immediate REST routes in place</h3>
+        <span class="fil">app/api/.../information/[infoId]/labels · .../datetimes</span>
+      </div>
+    </div>
+    <p>
+      After this change the label/datetime <code>POST/PATCH/DELETE</code> routes are unused by the app
+      (only <code>getDatetimes</code> reads remain — used here and in <code>TimelineView</code>). Leave
+      the routes as-is to keep the diff contained; removing them is optional follow-up.
+      <code>TimelineView</code> is unaffected: it reads submitted datetimes and pins them by id.
+    </p>
+  </div>
+
+  <!-- STEP 7 -->
+  <div class="step">
+    <div class="stephead">
+      <span class="stepnum">7</span>
+      <div>
+        <h3>Tests</h3>
+        <span class="fil">tests/</span>
+      </div>
+    </div>
+    <ul>
+      <li><strong>Server unit:</strong> submit a draft that adds labels + datetimes to a new row →
+        assert <code>information_labels</code>/<code>information_datetimes</code> rows. Then submit
+        with one removed and one edited → assert reconciliation, and that an unchanged datetime
+        <strong>keeps its id</strong> (pin survival).</li>
+      <li><strong>UI:</strong> create new information, add a label and a date <em>before any
+        submit</em>, Submit, reload → both persist. <em>Discard Draft</em> drops staged
+        labels/dates.</li>
+    </ul>
+  </div>
+
+  <h2>Trade-offs to confirm</h2>
+  <div class="goodbox">
+    <h4>Intended behavior change</h4>
+    <ul>
+      <li>Labels/dates stop persisting instantly — they now save only on <strong>Save</strong> (to the
+        draft) and <strong>Submit</strong> (to the tables). This is the whole point of Option 2 and is
+        exactly what unblocks unsubmitted rows.</li>
+    </ul>
+  </div>
+  <div class="badbox">
+    <h4>Watch-outs</h4>
+    <ul>
+      <li>Pinning a <em>brand-new</em> date to a timeline requires a Submit first (its id isn't in the
+        DB until then) — the same practical constraint as today.</li>
+      <li>Datetime reconciliation must upsert by id, never delete-and-reinsert, or timeline pins
+        break.</li>
+    </ul>
+  </div>
+
+  <h2>Summary of surface</h2>
+  <table>
+    <thead><tr><th>Area</th><th>File(s)</th><th>Change</th></tr></thead>
+    <tbody>
+      <tr><td>Snapshot type</td><td><code>lib/projects.ts</code>, <code>lib/drizzle/schema.ts</code></td><td>Add <code>labels</code> + <code>datetimes</code> to info entries</td></tr>
+      <tr><td>Draft hook</td><td><code>app/useFileDraft.ts</code></td><td>Seed, mutators, <code>baselineInfoIds</code></td></tr>
+      <tr><td>Submit</td><td><code>lib/projects.server.ts</code></td><td>Reconcile labels + datetimes in-transaction</td></tr>
+      <tr><td>Shared helper</td><td><code>lib/timelines.server.ts</code></td><td>Export <code>validateAndDerive</code></td></tr>
+      <tr><td>Sidebar UI</td><td><code>app/InformationSidebar.tsx</code></td><td>Read/write draft; drop the <code>isUnsaved</code> gate</td></tr>
+      <tr><td>Tests</td><td><code>tests/</code></td><td>Server reconciliation + UI unsubmitted flow</td></tr>
+    </tbody>
+  </table>
+
+  <div class="chips">
+    <span class="chip"><b>DB migration:</b> none</span>
+    <span class="chip"><b>Schema (labels/dates tables):</b> unchanged</span>
+    <span class="chip"><b>Effort:</b> High</span>
+    <span class="chip"><b>Open call:</b> delete vs. keep unused REST routes</span>
+  </div>
+
+  <footer>
+    DocuScope · Option 2 implementation plan. File references point to <code>docuscope/</code>.
+  </footer>
+</main>
+</body>
+</html>

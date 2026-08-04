@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Adding Labels &amp; Dates to Unsubmitted Information — Proposal</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #18181b;
+    --muted: #52525b;
+    --faint: #71717a;
+    --line: rgba(0,0,0,.10);
+    --line-strong: rgba(0,0,0,.18);
+    --card: #fafafa;
+    --code-bg: #f4f4f5;
+    --accent: #4f46e5;
+    --good: #15803d;
+    --good-bg: #f0fdf4;
+    --bad: #b91c1c;
+    --bad-bg: #fef2f2;
+    --warn: #a16207;
+    --warn-bg: #fefce8;
+    --pill: #ede9fe;
+    --pill-fg: #4338ca;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0a0a;
+      --fg: #fafafa;
+      --muted: #a1a1aa;
+      --faint: #71717a;
+      --line: rgba(255,255,255,.12);
+      --line-strong: rgba(255,255,255,.22);
+      --card: #131316;
+      --code-bg: #18181b;
+      --accent: #a5b4fc;
+      --good: #4ade80;
+      --good-bg: rgba(34,197,94,.10);
+      --bad: #f87171;
+      --bad-bg: rgba(239,68,68,.10);
+      --warn: #fbbf24;
+      --warn-bg: rgba(234,179,8,.10);
+      --pill: rgba(99,102,241,.18);
+      --pill-fg: #c7d2fe;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 0 1.25rem 5rem;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  header.doc {
+    padding: 3rem 0 1.5rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 2rem;
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 0 0 .6rem;
+  }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .6rem; letter-spacing: -.01em; }
+  h2 {
+    font-size: 1.35rem;
+    margin: 3rem 0 1rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    letter-spacing: -.01em;
+  }
+  h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+  p { margin: .7rem 0; }
+  .lede { font-size: 1.08rem; color: var(--muted); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .85em;
+    background: var(--code-bg);
+    padding: .12em .4em;
+    border-radius: 5px;
+    border: 1px solid var(--line);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-size: .82rem;
+    line-height: 1.55;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  a { color: var(--accent); }
+  ul, ol { padding-left: 1.3rem; }
+  li { margin: .3rem 0; }
+  .muted { color: var(--muted); }
+
+  .callout {
+    border: 1px solid var(--line);
+    background: var(--card);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+  }
+  .callout .k { font-weight: 600; }
+
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.5rem 1.6rem;
+    margin: 1.5rem 0;
+    background: var(--card);
+  }
+  .card.recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .optnum {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem; height: 1.9rem;
+    border-radius: 50%;
+    background: var(--pill);
+    color: var(--pill-fg);
+    font-weight: 700;
+    font-size: .95rem;
+    margin-right: .6rem;
+    flex: 0 0 auto;
+  }
+  .opthead { display: flex; align-items: center; gap: .1rem; margin: 0 0 .2rem; }
+  .opthead h3 { margin: 0; font-size: 1.2rem; }
+  .tag {
+    display: inline-block;
+    font-size: .68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    padding: .18em .5em;
+    border-radius: 999px;
+    margin-left: .5rem;
+    vertical-align: middle;
+  }
+  .tag.rec { background: var(--pill); color: var(--pill-fg); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.1rem 0; }
+  @media (max-width: 620px) { .grid2 { grid-template-columns: 1fr; } }
+  .prosbox, .consbox { border-radius: 10px; padding: .8rem 1rem; font-size: .92rem; }
+  .prosbox { background: var(--good-bg); border: 1px solid color-mix(in srgb, var(--good) 30%, transparent); }
+  .consbox { background: var(--bad-bg); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+  .prosbox h4, .consbox h4 { margin: 0 0 .4rem; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .prosbox h4 { color: var(--good); }
+  .consbox h4 { color: var(--bad); }
+  .prosbox ul, .consbox ul { margin: 0; }
+
+  .meta-row { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0 .2rem; }
+  .chip {
+    font-size: .78rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    padding: .2em .7em;
+    color: var(--muted);
+  }
+  .chip b { color: var(--fg); font-weight: 600; }
+
+  table { border-collapse: collapse; width: 100%; margin: 1.2rem 0; font-size: .9rem; }
+  th, td { text-align: left; padding: .6rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); }
+  td.good { color: var(--good); font-weight: 600; }
+  td.warn { color: var(--warn); font-weight: 600; }
+  td.bad  { color: var(--bad);  font-weight: 600; }
+
+  .filemap { font-size: .9rem; }
+  .filemap code { font-size: .82rem; }
+  footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--faint); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <header class="doc">
+    <p class="eyebrow">Design Proposal · DocuScope</p>
+    <h1>Adding Labels &amp; Dates to Unsubmitted Information</h1>
+    <p class="lede">Three ways to let contributors attach labels and dates to a piece of
+      information <em>before</em> the whole file is submitted — with trade-offs, effort, and a recommendation.</p>
+  </header>
+
+  <h2>The problem</h2>
+  <p>
+    In the Information sidebar, a contributor builds up a file's information rows in a shared
+    working draft. Most fields (title, text, bias, reliability, credibility) live entirely in
+    memory and are only written to the database on <strong>Submit</strong>. Two attributes behave
+    differently: <strong>Labels</strong> and <strong>Dates</strong> are persisted
+    <em>immediately</em> through their own APIs, and those APIs require the information row to
+    already exist in the database.
+  </p>
+  <p>
+    The result: as soon as a contributor clicks <code>+ Add New Information</code>, the new row
+    exists only client-side. Its <code>+ Label</code> and <code>+ Add date</code> controls are
+    disabled, with the tooltip <em>"Submit this entry before adding labels / dates."</em> A user
+    who wants to tag brand-new information is forced to submit the entire file first — publishing
+    every other in-progress row alongside it.
+  </p>
+
+  <div class="callout">
+    <p style="margin:.2rem 0"><span class="k">Where this lives today</span></p>
+    <ul class="filemap" style="margin:.4rem 0 0">
+      <li><code>app/InformationSidebar.tsx</code> — <code>startNew()</code> creates a client-only
+        row via <code>newInformationId()</code>; <code>isUnsaved</code> gates the label &amp; date
+        controls; <code>persistedIds</code> tracks which rows exist in the DB.</li>
+      <li><code>app/useFileDraft.ts</code> — the shared working snapshot; <code>save()</code>
+        stages a draft, <code>submit()</code> publishes <em>all</em> information rows.</li>
+      <li><code>…/information/route.ts</code> — <code>POST</code> → <code>addInformation()</code>
+        already persists a <em>single</em> row and accepts a client-supplied <code>id</code>.</li>
+      <li><code>…/information/[infoId]/labels/route.ts</code>,
+        <code>…/information/[infoId]/datetimes</code> — label &amp; date APIs that 404 for a row
+        that isn't in the DB yet.</li>
+    </ul>
+  </div>
+
+  <h2>Design constraints</h2>
+  <ul>
+    <li><b>Don't force a full submit.</b> Tagging one new row must not publish the file's other
+      in-progress rows.</li>
+    <li><b>Preserve draft semantics.</b> The Save/Submit model in <code>useFileDraft</code> is the
+      backbone of collaborative editing (issue&nbsp;#78); a solution should fit it, not fight it.</li>
+    <li><b>Respect the check-out lock.</b> Writes only happen while the file is held by the current
+      user (<code>isHeldByMe &amp;&amp; !lockedByOther</code>).</li>
+    <li><b>No orphans / no surprises.</b> Rows the user abandons shouldn't silently accumulate in
+      the database, and history/version behavior should stay coherent.</li>
+  </ul>
+
+  <h2>The three options</h2>
+
+  <!-- OPTION 1 -->
+  <div class="card recommended">
+    <div class="opthead">
+      <span class="optnum">1</span>
+      <h3>Create an empty information row on "Add New Information"<span class="tag rec">Recommended</span></h3>
+    </div>
+    <p>
+      When the user clicks <code>+ Add New Information</code>, immediately
+      <code>POST</code> a blank row to <code>…/information</code> (which already accepts a
+      client-supplied <code>id</code>), then add that id to <code>persistedIds</code>. The row now
+      exists in the database, so the label and date APIs work right away — while the row's
+      <em>content</em> fields continue to flow through the normal draft Save/Submit path. Critically,
+      this persists <em>only the one new row</em>; the file's other draft rows are untouched.
+    </p>
+
+    <pre><code>// InformationSidebar.tsx — startNew()
+async function startNew() {
+  const id = newInformationId(projectId, file.id);
+  draft.upsertInformation({ id, informationTitle: "", /* …blanks… */ selections: [] });
+  setItemLabels(prev =&gt; new Map(prev).set(id, []));
+  setSelectedId(id);
+
+  // NEW: register the empty row in the DB so labels/dates attach immediately.
+  try {
+    await addInformation(projectId, file.id, id, /* empty fields */);
+    setPersistedIds(prev =&gt; new Set(prev).add(id));   // unlocks the gate
+  } catch { /* leave row client-only; gate stays closed, as today */ }
+}</code></pre>
+
+    <p class="muted">
+      The <code>isUnsaved</code> gate then evaluates <code>false</code> for the new row, so
+      <code>+ Label</code> and <code>+ Add date</code> light up with no other UI change. On Submit,
+      the existing publish path reconciles the same <code>id</code> (an upsert), so the content the
+      user typed lands on the row that already holds the labels/dates.
+    </p>
+
+    <div class="grid2">
+      <div class="prosbox">
+        <h4>Pros</h4>
+        <ul>
+          <li>Directly satisfies the requested design.</li>
+          <li>Reuses the <em>existing</em> single-row <code>addInformation</code> endpoint and the
+            <code>persistedIds</code> machinery — small, localized change.</li>
+          <li>Labels &amp; dates, field history, and PDF selections all "just work" for new rows —
+            no special-casing.</li>
+          <li>No change to the Save/Submit contract.</li>
+        </ul>
+      </div>
+      <div class="consbox">
+        <h4>Cons / risks</h4>
+        <ul>
+          <li><b>Orphan rows.</b> A user who adds a row then closes without submitting leaves an
+            empty published row. Needs cleanup (delete-on-abandon, or a "blank + no labels/dates"
+            sweep).</li>
+          <li>Blurs the "nothing is real until Submit" mental model — a row now exists before its
+            content is published.</li>
+          <li>The empty row is visible to <em>other</em> contributors immediately (it's published),
+            even before the author fills it in.</li>
+          <li>Needs a check-out guarantee so the eager POST can't 409.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="chip"><b>Effort:</b> Low–Medium</span>
+      <span class="chip"><b>Backend change:</b> Minimal (endpoint exists)</span>
+      <span class="chip"><b>Risk:</b> Orphan cleanup is the main open question</span>
+    </div>
+  </div>
+
+  <!-- OPTION 2 -->
+  <div class="card">
+    <div class="opthead">
+      <span class="optnum">2</span>
+      <h3>Carry labels &amp; dates in the draft snapshot</h3>
+    </div>
+    <p>
+      Stop persisting labels and dates through their own immediate APIs. Instead, add them to the
+      working snapshot in <code>useFileDraft</code> — exactly like every other information field —
+      and write them to the database as part of <code>save()</code> and <code>submit()</code>. A row
+      no longer needs to exist in the DB to hold staged labels/dates, so the
+      <code>isUnsaved</code> gate disappears entirely.
+    </p>
+    <pre><code>// FileDraftSnapshot.information[n] gains:
+labels: string[];              // label ids, staged
+datetimes: DatetimeInput[];    // staged date payloads
+
+// submit() publishes rows + their labels + their datetimes in one transaction.</code></pre>
+    <p class="muted">
+      This makes the data model uniform: <em>everything</em> about a piece of information is part of
+      one atomic draft that Saves and Submits together.
+    </p>
+
+    <div class="grid2">
+      <div class="prosbox">
+        <h4>Pros</h4>
+        <ul>
+          <li>Conceptually the cleanest — one consistent persistence path for the whole row.</li>
+          <li>No orphan rows; nothing hits the DB until Save/Submit, matching today's mental model.</li>
+          <li>Labels/dates become undoable via Discard Draft, like other fields.</li>
+          <li>Works offline / while composing, with no per-keystroke network calls.</li>
+        </ul>
+      </div>
+      <div class="consbox">
+        <h4>Cons / risks</h4>
+        <ul>
+          <li><b>Largest change.</b> Touches the snapshot type, the draft store, the submit
+            transaction, and the server publish logic.</li>
+          <li>Labels/dates currently persist instantly and independently of check-out — this
+            re-couples them to Save/Submit, a behavior change for existing rows.</li>
+          <li>Date records have their own identity/history on the timeline; folding them into the
+            draft needs care so timeline references stay stable.</li>
+          <li>Higher regression surface across the draft, timeline, and label features.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="chip"><b>Effort:</b> High</span>
+      <span class="chip"><b>Backend change:</b> Significant (submit path)</span>
+      <span class="chip"><b>Risk:</b> Broad regression surface</span>
+    </div>
+  </div>
+
+  <!-- OPTION 3 -->
+  <div class="card">
+    <div class="opthead">
+      <span class="optnum">3</span>
+      <h3>Lazy just-in-time persistence on first tag</h3>
+    </div>
+    <p>
+      Keep rows client-only by default, but the <em>first</em> time the user clicks
+      <code>+ Label</code> or <code>+ Add date</code> on an unsaved row, transparently persist that
+      single row first (the same <code>addInformation</code> POST as Option 1), then perform the
+      label/date call. The gate is replaced by an on-demand promotion: nothing is written to the DB
+      until the user actually needs it there.
+    </p>
+    <pre><code>async function ensurePersisted(id: string) {
+  if (persistedIds.has(id)) return;
+  await addInformation(projectId, file.id, id, currentFieldsFor(id));
+  setPersistedIds(prev =&gt; new Set(prev).add(id));
+}
+// handleAddLabel / setDatetimeEditor("new") await ensurePersisted(selectedId) first.</code></pre>
+
+    <div class="grid2">
+      <div class="prosbox">
+        <h4>Pros</h4>
+        <ul>
+          <li>Only creates DB rows the user actually tags — far fewer orphans than Option 1.</li>
+          <li>No new controls; the disabled state simply becomes "works on click."</li>
+          <li>Reuses existing endpoints; medium-sized, mostly client-side change.</li>
+        </ul>
+      </div>
+      <div class="consbox">
+        <h4>Cons / risks</h4>
+        <ul>
+          <li>Does <em>not</em> match the specifically requested "empty row on create" design.</li>
+          <li>A subtle latency/async moment on first tag (row must be created before the label
+            lands); needs optimistic UI + rollback.</li>
+          <li>Still creates a partially-published row mid-draft — same "visible to others early"
+            concern as Option 1, just deferred.</li>
+          <li>Promotion logic (which fields to send at promote time, keeping them in sync with the
+            draft afterward) adds a reconciliation edge case.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="chip"><b>Effort:</b> Medium</span>
+      <span class="chip"><b>Backend change:</b> Minimal (endpoint exists)</span>
+      <span class="chip"><b>Risk:</b> Async ordering edge cases</span>
+    </div>
+  </div>
+
+  <h2>At a glance</h2>
+  <table>
+    <thead>
+      <tr><th>Criterion</th><th>1 · Empty row on create</th><th>2 · Labels/dates in draft</th><th>3 · Lazy on first tag</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Matches requested design</td><td class="good">Yes</td><td class="bad">No</td><td class="bad">No</td></tr>
+      <tr><td>Implementation effort</td><td class="good">Low–Med</td><td class="bad">High</td><td class="warn">Medium</td></tr>
+      <tr><td>Backend work</td><td class="good">Minimal</td><td class="bad">Significant</td><td class="good">Minimal</td></tr>
+      <tr><td>Orphan-row risk</td><td class="bad">Highest</td><td class="good">None</td><td class="warn">Low</td></tr>
+      <tr><td>Preserves "nothing real until Submit"</td><td class="bad">No</td><td class="good">Yes</td><td class="warn">Partly</td></tr>
+      <tr><td>Regression surface</td><td class="good">Small</td><td class="bad">Large</td><td class="warn">Medium</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Recommendation</h2>
+  <p>
+    <strong>Option&nbsp;1</strong> is the recommended path. It is the design the request calls for,
+    it reuses machinery that already exists (the single-row <code>addInformation</code> endpoint and
+    the <code>persistedIds</code> gate), and it keeps the change small and local to
+    <code>InformationSidebar.tsx</code>. The one problem it must answer is <em>orphan rows</em>: pair
+    it with a cleanup rule — e.g. delete the row on close if it was never given a title, labels,
+    dates, selections, or text — so abandoned blanks don't pile up.
+  </p>
+  <p class="muted">
+    If the team later wants to eliminate the immediate-write inconsistency at its root,
+    <strong>Option&nbsp;2</strong> is the cleaner long-term destination; Option&nbsp;1 does not block
+    it. <strong>Option&nbsp;3</strong> is a reasonable middle ground if orphan rows prove hard to
+    manage but the full draft rework of Option&nbsp;2 is too costly.
+  </p>
+
+  <footer>
+    DocuScope · Information sidebar · Proposal generated for review. File references point to
+    <code>docuscope/app/</code>.
+  </footer>
+</main>
+</body>
+</html>

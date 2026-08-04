@@ -46,6 +46,8 @@ function infoRow(
     informationCredibility: null,
     informationReliabilityCode: null,
     informationCredibilityCode: null,
+    labels: [],
+    datetimes: [],
     selections: [],
     ...fields,
   };

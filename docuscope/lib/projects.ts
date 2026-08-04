@@ -1,6 +1,7 @@
 import { api } from './apiClient';
 import { isPdf, extractPdfText } from './pdfText';
 import { ALL_SEARCH_FIELDS, type SearchField } from './searchScope';
+import type { Precision } from './datetimePrecision';
 
 // All data access for projects goes through these functions so UI components
 // never call the API directly (mirrors the old Firebase design principle).
@@ -120,6 +121,21 @@ export type FileDraftSnapshot = {
     informationCredibility: string | null;
     informationReliabilityCode: string | null;
     informationCredibilityCode: string | null;
+    // Assigned 'information'-kind label ids (Option 2 — labels/dates ride in the
+    // draft so they can attach to a not-yet-submitted row and persist on Submit).
+    labels: string[];
+    // Datetimes staged on the row. Only the RAW input is stored — bounds are
+    // always re-derived server-side on Submit. `id` is the existing DB id for a
+    // published datetime or a client UUID for a new one; keeping it stable lets
+    // Submit upsert by id so timeline_entries pins survive.
+    datetimes: Array<{
+      id: string;
+      isRange: boolean;
+      startValue: string;
+      startPrecision: Precision;
+      endValue: string | null;
+      endPrecision: Precision | null;
+    }>;
     selections: Array<{
       id: string;
       pageIndex: number;

@@ -15,6 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { Precision } from '../datetimePrecision';
 
 const tsvector = customType<{ data: string }>({
   dataType() { return 'tsvector'; },
@@ -323,6 +324,22 @@ export type FileDraftSnapshot = {
     informationCredibility: string | null;
     informationReliabilityCode: string | null;
     informationCredibilityCode: string | null;
+    // Assigned 'information'-kind label ids (Option 2 — labels/dates ride in the
+    // draft so they can attach to a not-yet-submitted row and persist on Submit).
+    labels: string[];
+    // Datetimes staged on the row. Only the RAW input is stored — bounds
+    // (lowerMs/upperMs/…) are always re-derived server-side on Submit, so a
+    // client can never persist inconsistent bounds. `id` is the existing DB id
+    // for a published datetime or a client UUID for a new one; keeping it stable
+    // lets Submit upsert by id so timeline_entries pins survive.
+    datetimes: Array<{
+      id: string;
+      isRange: boolean;
+      startValue: string;
+      startPrecision: Precision;
+      endValue: string | null;
+      endPrecision: Precision | null;
+    }>;
     selections: Array<{
       id: string;
       pageIndex: number;
