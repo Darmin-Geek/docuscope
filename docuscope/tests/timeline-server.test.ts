@@ -4,9 +4,7 @@ import { db } from "../lib/drizzle/db";
 import { information, informationDatetimes, timelineEntries } from "../lib/drizzle/schema";
 import {
   getDatetimes,
-  addDatetime,
-  updateDatetime,
-  deleteDatetime,
+  validateAndDerive,
   getTimelines,
   createTimeline,
   updateTimeline,
@@ -25,13 +23,13 @@ import {
 // functions directly against the test database (no browser), mirroring the
 // getFiles server tests in search.test.ts.
 
-test.describe("datetime CRUD", () => {
-  test("derives point bounds from value + precision on write", async () => {
-    const projectId = await createTestProject();
-    const fileId = await createTestFile(projectId);
-    const infoId = await createTestInformation(fileId);
-
-    const dt = await addDatetime(projectId, fileId, infoId, {
+// Datetime writes now go through the file draft snapshot and are reconciled in
+// submitDraft (see draft-labels-dates.test.ts). validateAndDerive is the single
+// bound-derivation path both use, so its output is tested directly here; the
+// read + project-scoping path (getDatetimes) is exercised against seeded rows.
+test.describe("datetime bound derivation + reads", () => {
+  test("derives point bounds from value + precision", () => {
+    const bounds = validateAndDerive({
       isRange: false,
       startValue: "1994-01-01T00:00",
       startPrecision: "year",
@@ -39,19 +37,17 @@ test.describe("datetime CRUD", () => {
       endPrecision: null,
     });
 
-    // Year 1994 → [1994-01-01, 1995-01-01), no core bounds.
-    expect(dt.lowerMs).toBe(Date.UTC(1994, 0, 1));
-    expect(dt.upperMs).toBe(Date.UTC(1995, 0, 1));
-    expect(dt.coreLowerMs).toBeNull();
-    expect(dt.coreUpperMs).toBeNull();
+    // Year 1994 → [1994-01-01, 1995-01-01), no core bounds. validateAndDerive
+    // returns bigint ms (the DB column type); Number() mirrors how toDatetime
+    // exposes them to the client.
+    expect(Number(bounds.lowerMs)).toBe(Date.UTC(1994, 0, 1));
+    expect(Number(bounds.upperMs)).toBe(Date.UTC(1995, 0, 1));
+    expect(bounds.coreLowerMs).toBeNull();
+    expect(bounds.coreUpperMs).toBeNull();
   });
 
-  test("derives range core + whisker bounds (decade start, month end)", async () => {
-    const projectId = await createTestProject();
-    const fileId = await createTestFile(projectId);
-    const infoId = await createTestInformation(fileId);
-
-    const dt = await addDatetime(projectId, fileId, infoId, {
+  test("derives range core + whisker bounds (decade start, month end)", () => {
+    const bounds = validateAndDerive({
       isRange: true,
       startValue: "1980-01-01T00:00",
       startPrecision: "decade",
@@ -59,52 +55,36 @@ test.describe("datetime CRUD", () => {
       endPrecision: "month",
     });
 
-    expect(dt.lowerMs).toBe(Date.UTC(1980, 0, 1)); // decade start = left whisker edge
-    expect(dt.coreLowerMs).toBe((Date.UTC(1980, 0, 1) + Date.UTC(1990, 0, 1)) / 2); // mid-decade = solid start
-    expect(dt.coreUpperMs).toBe((Date.UTC(1995, 2, 1) + Date.UTC(1995, 3, 1)) / 2); // mid-March = solid end
-    expect(dt.upperMs).toBe(Date.UTC(1995, 3, 1)); // Apr 1995 = right whisker end
+    expect(Number(bounds.lowerMs)).toBe(Date.UTC(1980, 0, 1)); // decade start = left whisker edge
+    expect(Number(bounds.coreLowerMs)).toBe((Date.UTC(1980, 0, 1) + Date.UTC(1990, 0, 1)) / 2); // mid-decade = solid start
+    expect(Number(bounds.coreUpperMs)).toBe((Date.UTC(1995, 2, 1) + Date.UTC(1995, 3, 1)) / 2); // mid-March = solid end
+    expect(Number(bounds.upperMs)).toBe(Date.UTC(1995, 3, 1)); // Apr 1995 = right whisker end
   });
 
-  test("rejects a reversed range", async () => {
-    const projectId = await createTestProject();
-    const fileId = await createTestFile(projectId);
-    const infoId = await createTestInformation(fileId);
-
-    await expect(
-      addDatetime(projectId, fileId, infoId, {
+  test("rejects a reversed range", () => {
+    expect(() =>
+      validateAndDerive({
         isRange: true,
         startValue: "2000-01-01T00:00",
         startPrecision: "year",
         endValue: "1990-01-01T00:00",
         endPrecision: "year",
       }),
-    ).rejects.toThrow("Invalid");
+    ).toThrow("Invalid");
   });
 
-  test("lists, updates and deletes datetimes", async () => {
+  test("lists a row's datetimes ordered by lower bound", async () => {
     const projectId = await createTestProject();
     const fileId = await createTestFile(projectId);
     const infoId = await createTestInformation(fileId);
-    const id = await createTestDatetime(infoId, {
+    await createTestDatetime(infoId, {
       startValue: "1900-01-01T00:00",
       startPrecision: "year",
     });
 
-    let rows = await getDatetimes(projectId, fileId, infoId);
+    const rows = await getDatetimes(projectId, fileId, infoId);
     expect(rows).toHaveLength(1);
-
-    const updated = await updateDatetime(projectId, fileId, infoId, id, {
-      isRange: false,
-      startValue: "2001-01-01T00:00",
-      startPrecision: "year",
-      endValue: null,
-      endPrecision: null,
-    });
-    expect(updated.lowerMs).toBe(Date.UTC(2001, 0, 1));
-
-    await deleteDatetime(projectId, fileId, infoId, id);
-    rows = await getDatetimes(projectId, fileId, infoId);
-    expect(rows).toHaveLength(0);
+    expect(rows[0].lowerMs).toBe(Date.UTC(1900, 0, 1));
   });
 
   test("cannot read datetimes through a mismatched project", async () => {

@@ -43,6 +43,8 @@ export type DatetimeInputPayload = {
   endPrecision: Precision | null;
 };
 
+// Read-only: datetime writes go through the file draft snapshot and submitDraft
+// (Option 2). DatetimeInputPayload is still used by the draft editor UI.
 export async function getDatetimes(
   projectId: string,
   fileId: string,
@@ -50,43 +52,6 @@ export async function getDatetimes(
 ): Promise<InformationDatetime[]> {
   return api<InformationDatetime[]>(
     `/api/projects/${projectId}/files/${fileId}/information/${informationId}/datetimes`,
-  );
-}
-
-export async function addDatetime(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  payload: DatetimeInputPayload,
-): Promise<InformationDatetime> {
-  return api<InformationDatetime>(
-    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/datetimes`,
-    { method: 'POST', body: JSON.stringify(payload) },
-  );
-}
-
-export async function updateDatetime(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  datetimeId: string,
-  payload: DatetimeInputPayload,
-): Promise<InformationDatetime> {
-  return api<InformationDatetime>(
-    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/datetimes/${datetimeId}`,
-    { method: 'PATCH', body: JSON.stringify(payload) },
-  );
-}
-
-export async function deleteDatetime(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  datetimeId: string,
-): Promise<void> {
-  await api(
-    `/api/projects/${projectId}/files/${fileId}/information/${informationId}/datetimes/${datetimeId}`,
-    { method: 'DELETE' },
   );
 }
 

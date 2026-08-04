@@ -1473,33 +1473,3 @@ export async function removeLabelFromFile(
     .delete(fileLabels)
     .where(and(eq(fileLabels.fileId, fileId), eq(fileLabels.labelId, labelId)));
 }
-
-export async function addLabelToInformation(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  labelId: string,
-): Promise<void> {
-  await requireInformation(projectId, fileId, informationId);
-  await db
-    .insert(informationLabels)
-    .values({ informationId, labelId })
-    .onConflictDoNothing();
-}
-
-export async function removeLabelFromInformation(
-  projectId: string,
-  fileId: string,
-  informationId: string,
-  labelId: string,
-): Promise<void> {
-  await requireInformation(projectId, fileId, informationId);
-  await db
-    .delete(informationLabels)
-    .where(
-      and(
-        eq(informationLabels.informationId, informationId),
-        eq(informationLabels.labelId, labelId),
-      ),
-    );
-}
