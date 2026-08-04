@@ -62,6 +62,7 @@ export async function injectOidcUser(
   page: Page,
   uid: string,
   email: string,
+  options: { expired?: boolean } = {},
 ): Promise<void> {
   // Navigate first so localStorage is scoped to the right origin.
   await page.goto('/');
@@ -77,6 +78,9 @@ export async function injectOidcUser(
   // This token format is accepted by verifyAuth.ts when TEST_AUTH_SECRET is set.
   const fakeIdToken = `test:${secret}:${uid}:${email}`;
   const now = Math.floor(Date.now() / 1000);
+  // A negative offset produces a token oidc-client-ts reports as `expired`,
+  // simulating a session that lapsed while the user was away.
+  const expiresAt = options.expired ? now - 60 : now + 3600;
 
   const oidcUser = {
     id_token: fakeIdToken,
@@ -89,10 +93,10 @@ export async function injectOidcUser(
       email_verified: true,
       iss: authority,
       aud: clientId,
-      exp: now + 3600,
+      exp: expiresAt,
       iat: now,
     },
-    expires_at: now + 3600,
+    expires_at: expiresAt,
     session_state: null,
   };
 

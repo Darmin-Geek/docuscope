@@ -29,8 +29,11 @@ export default function Home() {
   const auth = useAuth();
 
   // Derive a stable User from the OIDC session; null when not authenticated.
+  // An expired session still leaves a (stale) user object in localStorage, so
+  // treat an expired token as logged out — otherwise we'd show the project list
+  // to a user whose API calls all fail with "not authenticated".
   const user = useMemo<User | null>(() => {
-    if (!auth.user) return null;
+    if (!auth.user || auth.user.expired) return null;
     return {
       uid: auth.user.profile.sub,
       email: (auth.user.profile.email as string | undefined) ?? null,
