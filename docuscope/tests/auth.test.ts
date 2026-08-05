@@ -27,6 +27,23 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("button", { name: "Log In" })).toBeVisible();
   });
 
+  test("user with an expired session is shown the sign-in screen, not the projects list", async ({
+    page,
+  }) => {
+    const uid = `uid-expired-${Date.now()}`;
+    const email = `expired-${Date.now()}@test.com`;
+
+    await injectOidcUser(page, uid, email, { expired: true });
+
+    // The stale user object is still in localStorage, but an expired session
+    // must present the login page rather than an empty "Your Projects" list.
+    await expect(page.getByRole("button", { name: "Sign Up" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Log In" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Your Projects" })
+    ).toBeHidden();
+  });
+
   test("Log Out clears the session and returns to the sign-in screen", async ({
     page,
   }) => {
